@@ -75,34 +75,36 @@ namespace Microsoft.MinIoC
         // Object cache where per-scope objects are stored
         interface IScopeCache : IScope
         {
-            void CacheInstance(Type type, object instanceToCache);
-            object GetCachedInstance(Type type);
+            object GetCachedInstance(Type type, Func<IScopeCache, object> factory);
         }
 
         // Scope implementation
         class Scope : IScopeCache
         {
+            public static IScopeCache Null { get; } = new NullScope();
             private Dictionary<Type, object> _instanceCache = new Dictionary<Type, object>();
-            public static IScopeCache Null = new NullScope();
+            private object _syncRoot = new object();
 
             // Scope.Resolve invokes Container.Resolve passing in the scope instance
             public T Resolve<T>() => Container.Resolve<T>(this);
 
-            // Cache instance for a given type
-            public void CacheInstance(Type type, object instanceToCache)
-            {
-                // There should never be an instance already cached for this type
-                Debug.Assert(!_instanceCache.ContainsKey(type));
-
-                _instanceCache[type] = instanceToCache;
-            }
-
-            // Get cached instance for the given type or null if not cached
-            public object GetCachedInstance(Type type)
+            // Get cached instance for the given type (creates a new instance if not cached)
+            public object GetCachedInstance(Type type, Func<IScopeCache, object> factory)
             {
                 object result;
+
                 _instanceCache.TryGetValue(type, out result);
-                return result;
+                if (result != null) return result;
+
+                lock (_syncRoot)
+                {
+                    _instanceCache.TryGetValue(type, out result);
+                    if (result != null) return result;
+
+                    _instanceCache[type] = factory(this);
+                }
+
+                return _instanceCache[type];
             }
 
             // No need to free resources, we use IDisposable to enable "using" synstax
@@ -117,11 +119,8 @@ namespace Microsoft.MinIoC
             // Resolve should never be called on NullScope
             public T Resolve<T>() => throw new NotImplementedException();
 
-            public object GetCachedInstance(Type type) => null;
-
-            public void CacheInstance(Type type, object instanceToCache)
-            {
-            }
+            // Directly call factory instead of caching
+            public object GetCachedInstance(Type type, Func<IScopeCache, object> factory) => factory(this);
 
             public void Dispose()
             {
@@ -231,27 +230,7 @@ namespace Microsoft.MinIoC
             // Per-scope decorates the factory with single instance per scope resolution
             private static Func<IScopeCache, object> PerScopeDecorator(Type itemType, Func<IScopeCache, object> factory)
             {
-                object _syncRoot = new object();
-
-                return scopeCache =>
-                {
-                    object result = scopeCache.GetCachedInstance(itemType);
-                    if (result != null) return result;
-
-                    // Lock only if we don't have a cached object, we need to ensure we
-                    // only create and cache the object once
-                    lock (_syncRoot)
-                    {
-                        // Check again if another thread cached an instance
-                        result = scopeCache.GetCachedInstance(itemType);
-                        if (result != null) return result;
-
-                        result = factory(scopeCache);
-                        scopeCache.CacheInstance(itemType, result);
-                    }
-
-                    return result;
-                };
+                return scopeCache => scopeCache.GetCachedInstance(itemType, factory);
             }
         }
         #endregion
