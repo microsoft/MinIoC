@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Reflection;
 
 namespace Microsoft.MinIoC
@@ -22,7 +23,7 @@ namespace Microsoft.MinIoC
         /// <returns>IRegisteredType object</returns>
         public static IRegisteredType Register<T>(Type type)
         {
-            return _registeredTypes[typeof(T)] = new ContainerItem(type, new ReflectionConstructionStrategy(type));
+            return _registeredTypes[typeof(T)] = ContainerItem.FromType(type);
         }
 
         /// <summary>
@@ -33,7 +34,7 @@ namespace Microsoft.MinIoC
         /// <returns>IRegisteredType object</returns>
         public static IRegisteredType Register<T>(Func<T> factory)
         {
-            return _registeredTypes[typeof(T)] = new ContainerItem(typeof(T), new FactoryConstructionStrategy<T>(factory));
+            return _registeredTypes[typeof(T)] = ContainerItem.FromFactory<T>(factory);
         }
 
         /// <summary>
@@ -44,7 +45,7 @@ namespace Microsoft.MinIoC
         public static T Resolve<T>()
         {
             // Call internal Resolve with the scope null object
-            // Per-context objects are creates as instance objects in this case
+            // Per-scope objects are creates as instance objects in this case
             return Resolve<T>(Scope.Null);
         }
 
@@ -104,7 +105,7 @@ namespace Microsoft.MinIoC
                 return result;
             }
 
-            // No need to free resources, we use IDisposable to enable using synstax
+            // No need to free resources, we use IDisposable to enable "using" synstax
             public void Dispose()
             {
             }
@@ -149,154 +150,108 @@ namespace Microsoft.MinIoC
         class ContainerItem : IRegisteredType
         {
             private Type _itemType;
-            private IConstructionStrategy _constructionStrategy;
-            private IResolutionStrategy _resolutionStrategy;
+            public Func<IScopeCache, object> Resolve { get; private set; }
 
-            public ContainerItem(Type itemType, IConstructionStrategy constructionStrategy)
+            private ContainerItem(Type itemType, Func<IScopeCache, object> factory)
             {
                 _itemType = itemType;
-                _constructionStrategy = constructionStrategy;
+                Resolve = factory;
+            }
 
-                // Default strategy is one instance per call
-                _resolutionStrategy = new InstanceResolutionStrategy();
+            public static ContainerItem FromFactory<T>(Func<T> factory)
+            {
+                return new ContainerItem(typeof(T), scopeCache => factory());
+            }
+
+            public static ContainerItem FromType(Type itemType)
+            {
+                return new ContainerItem(itemType, FactoryFromType(itemType));
             }
 
             public void AsSingleton()
             {
-                // Change resolution strategy to singleton
-                _resolutionStrategy = new SingletonResolutionStrategy();
+                // Decorate factory with singleton resolution
+                Resolve = SingletonDecorator(_itemType, Resolve);
             }
 
             public void PerScope()
             {
-                // Change resolution strategy to per-scope
-                _resolutionStrategy = new PerScopeResolutionStrategy();
+                // Decorate factory with per-scope resolution
+                Resolve = PerScopeDecorator(_itemType, Resolve);
             }
 
-            public object Resolve(IScopeCache scope)
-            {
-                // Resolve forwards the call to the resolution strategy
-                return _resolutionStrategy.Resolve(scope, _itemType, _constructionStrategy);
-            }
-        }
-        #endregion
-
-        #region Construction strategies
-        // Construction strategies implement the object creation mechanisms
-        interface IConstructionStrategy
-        {
-            object MakeInstance(IScopeCache scope);
-        }
-
-        // Reflection construction strategy uses reflection to invoke the first constructor and recursively resolves arguments
-        class ReflectionConstructionStrategy : IConstructionStrategy
-        {
-            private Type _itemType;
-
-            public ReflectionConstructionStrategy(Type itemType)
-            {
-                _itemType = itemType;
-            }
-
-            public object MakeInstance(IScopeCache scope)
+            // Compiles a lambda that calls the given type's first constructor resolving arguments
+            private static Func<IScopeCache, object> FactoryFromType(Type itemType)
             {
                 // Get first constructor for the type
-                var constructors = _itemType.GetConstructors();
+                var constructors = itemType.GetConstructors();
                 if (constructors.Length == 0)
                 {
                     // If no public constructor found, search for an internal constructor
-                    constructors = _itemType.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic);
+                    constructors = itemType.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic);
                 }
                 var constructor = constructors.First();
 
-                // Prepare constructor arguments
-                List<object> arguments = new List<object>();
-                foreach (var parameter in constructor.GetParameters())
-                {
-                    // Recursively resolve dependencies for this type
-                    arguments.Add(_registeredTypes[parameter.ParameterType].Resolve(scope));
-                }
-
-                // Call constructor and return object
-                return constructor.Invoke(arguments.ToArray());
-            }
-        }
-
-        // Factory construction strategy uses a passed in factory function to construct the object
-        class FactoryConstructionStrategy<T> : IConstructionStrategy
-        {
-            private Func<T> _factory;
-
-            public FactoryConstructionStrategy(Func<T> factory)
-            {
-                _factory = factory;
+                // Compile constructor call as a lambda expression
+                var arg = Expression.Parameter(typeof(IScopeCache));
+                return (Func<IScopeCache, object>)Expression.Lambda(
+                    Expression.New(constructor, constructor.GetParameters().Select(
+                        param =>
+                        {
+                            Func<IScopeCache, object> resolve = scopeCache => _registeredTypes[param.ParameterType].Resolve(scopeCache);
+                            return Expression.Convert(
+                                Expression.Call(Expression.Constant(resolve.Target), resolve.Method, arg),
+                                param.ParameterType);
+                        })),
+                    arg).Compile();
             }
 
-            public object MakeInstance(IScopeCache scope) => _factory();
-        }
-        #endregion
+            // Singleton decorates the factory with singleton resolution
 
-        #region Resolution strategies
-        // Resolution strategies implement the various object lifetimes (instance, scope, or singleton)
-        interface IResolutionStrategy
-        {
-            object Resolve(IScopeCache scope, Type type, IConstructionStrategy factory);
-        }
-
-        // Instance resolution strategy creates a new instance on each call
-        class InstanceResolutionStrategy : IResolutionStrategy
-        {
-            public object Resolve(IScopeCache scope, Type type, IConstructionStrategy factory)
+            private static Func<IScopeCache, object> SingletonDecorator(Type type, Func<IScopeCache, object> factory)
             {
-                return factory.MakeInstance(scope);
-            }
-        }
+                object _syncRoot = new object();
+                object _instance = null;
 
-        // Singleton resolution strategy creates a single instance for the whole app domain
-        class SingletonResolutionStrategy : IResolutionStrategy
-        {
-            private object _syncRoot = new object();
-            private object _instance { get; set; }
-
-            public object Resolve(IScopeCache scope, Type type, IConstructionStrategy factory)
-            {
-                if (_instance != null) return _instance;
-
-                lock (_syncRoot)
+                return scopeCache =>
                 {
                     if (_instance != null) return _instance;
-                    
-                    _instance = factory.MakeInstance(scope);
-                }
 
-                return _instance;
+                    lock (_syncRoot)
+                    {
+                        if (_instance != null) return _instance;
+
+                        _instance = factory(scopeCache);
+                    }
+
+                    return _instance;
+                };
             }
-        }
 
-        // Per-scope resolution strategy creates a single instance per scope
-        class PerScopeResolutionStrategy : IResolutionStrategy
-        {
-            private object _syncRoot = new object();
-
-            public object Resolve(IScopeCache scope, Type type, IConstructionStrategy factory)
+            // Per-scope decorates the factory with single instance per scope resolution
+            private static Func<IScopeCache, object> PerScopeDecorator(Type itemType, Func<IScopeCache, object> factory)
             {
-                object result = scope.GetCachedInstance(type);
+                object _syncRoot = new object();
 
-                if (result != null) return result;
-
-                // Lock only if we don't have a cached object, we need to ensure we
-                // only create and cache the object once
-                lock (_syncRoot)
+                return scopeCache =>
                 {
-                    // Check again if another thread cached an instance
-                    result = scope.GetCachedInstance(type);
+                    object result = scopeCache.GetCachedInstance(itemType);
                     if (result != null) return result;
 
-                    result = factory.MakeInstance(scope);
-                    scope.CacheInstance(type, result);
-                }
+                    // Lock only if we don't have a cached object, we need to ensure we
+                    // only create and cache the object once
+                    lock (_syncRoot)
+                    {
+                        // Check again if another thread cached an instance
+                        result = scopeCache.GetCachedInstance(itemType);
+                        if (result != null) return result;
 
-                return result;
+                        result = factory(scopeCache);
+                        scopeCache.CacheInstance(itemType, result);
+                    }
+
+                    return result;
+                };
             }
         }
         #endregion

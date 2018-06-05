@@ -1,21 +1,11 @@
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+﻿using System.Collections;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Microsoft.MinIoC.Tests
 {
     [TestClass]
     public class ContainerTests
     {
-        private PrivateType _privateContainer;
-        private object _registeredTypes;
-
-        [TestInitialize]
-        public void Setup()
-        {
-            // Save registered types before tests
-            _privateContainer = new PrivateType(typeof(Container));
-            _registeredTypes = _privateContainer.GetStaticField("_registeredTypes");
-        }
-
         [TestMethod]
         public void SimpleReflectionConstruction()
         {
@@ -164,11 +154,28 @@ namespace Microsoft.MinIoC.Tests
             Assert.AreNotEqual(instance2.Foo, (instance2.Bar as Bar).Foo);
         }
 
+        [TestMethod]
+        public void MixedReversedRegistration()
+        {
+            Container.Register<IBaz>(typeof(Baz));
+            Container.Register<IBar>(typeof(Bar));
+            Container.Register<IFoo>(() => new Foo());
+
+            IBaz instance = Container.Resolve<IBaz>();
+
+            // Test that the correct types were created
+            Assert.IsInstanceOfType(instance, typeof(Baz));
+
+            var baz = instance as Baz;
+            Assert.IsInstanceOfType(baz.Bar, typeof(Bar));
+            Assert.IsInstanceOfType(baz.Foo, typeof(Foo));
+        }
+
         [TestCleanup]
         public void TearDown()
         {
-            // Restore registered types after tests
-            _privateContainer.SetStaticField("_registeredTypes", _registeredTypes);
+            // Clear registered types after each test
+            (new PrivateType(typeof(Container)).GetStaticField("_registeredTypes") as IDictionary).Clear();
         }
 
         #region Types used for tests
