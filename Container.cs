@@ -107,7 +107,7 @@ namespace Microsoft.MinIoC
                 return _instanceCache[type];
             }
 
-            // No need to free resources, we use IDisposable to enable "using" synstax
+            // No need to free resources, we use IDisposable to enable "using" syntax
             public void Dispose()
             {
             }
@@ -206,7 +206,6 @@ namespace Microsoft.MinIoC
             }
 
             // Singleton decorates the factory with singleton resolution
-
             private static Func<IScopeCache, object> SingletonDecorator(Type type, Func<IScopeCache, object> factory)
             {
                 object _syncRoot = new object();
