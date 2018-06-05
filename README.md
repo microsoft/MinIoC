@@ -29,8 +29,8 @@ A singleton is created by calling `AsSingleton()` after registration:
 ```csharp
 Container.Register<IFoo>(typeof(Foo)).AsSingleton();
 
-var  instance1 = Container.Resolve<IFoo>();
-var object instance2 = Container.Resolve<IFoo>();
+var instance1 = Container.Resolve<IFoo>();
+var instance2 = Container.Resolve<IFoo>();
 
 Assert.AreEqual(instance1, instance2);
 ```
