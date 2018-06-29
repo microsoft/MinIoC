@@ -92,9 +92,7 @@ namespace Microsoft.MinIoC
             // Get cached instance for the given type (creates a new instance if not cached)
             public object GetCachedInstance(Type type, Func<IScopeCache, object> factory)
             {
-                object result;
-
-                _instanceCache.TryGetValue(type, out result);
+                _instanceCache.TryGetValue(type, out var result);
                 if (result != null) return result;
 
                 lock (_syncRoot)
