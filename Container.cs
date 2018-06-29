@@ -208,22 +208,8 @@ namespace Microsoft.MinIoC
             // Singleton decorates the factory with singleton resolution
             private static Func<IScopeCache, object> SingletonDecorator(Type type, Func<IScopeCache, object> factory)
             {
-                object _syncRoot = new object();
-                object _instance = null;
-
-                return scopeCache =>
-                {
-                    if (_instance != null) return _instance;
-
-                    lock (_syncRoot)
-                    {
-                        if (_instance != null) return _instance;
-
-                        _instance = factory(scopeCache);
-                    }
-
-                    return _instance;
-                };
+                var _instance = new Lazy<object>(() => factory(Scope.Null));
+                return _ => _instance.Value;
             }
 
             // Per-scope decorates the factory with single instance per scope resolution

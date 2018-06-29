@@ -126,11 +126,14 @@ namespace Microsoft.MinIoC.Tests
 
                 // Singleton should be same
                 Assert.AreEqual(instance1.Bar, instance2.Bar);
+                Assert.AreEqual((instance1.Bar as Bar).Foo, (instance2.Bar as Bar).Foo);
 
                 // Scoped types should be the same
                 Assert.AreEqual(instance1.Foo, instance2.Foo);
-                Assert.AreEqual(instance1.Foo, (instance1.Bar as Bar).Foo);
-                Assert.AreEqual(instance2.Foo, (instance2.Bar as Bar).Foo);
+
+                // Singleton should not hold scoped object
+                Assert.AreNotEqual(instance1.Foo, (instance1.Bar as Bar).Foo);
+                Assert.AreNotEqual(instance2.Foo, (instance2.Bar as Bar).Foo);
             }
         }
 
