@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -83,28 +84,14 @@ namespace Microsoft.MinIoC
         class Scope : IScopeCache
         {
             public static IScopeCache Null { get; } = new NullScope();
-            private Dictionary<Type, object> _instanceCache = new Dictionary<Type, object>();
-            private object _syncRoot = new object();
+            private ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
 
             // Scope.Resolve invokes Container.Resolve passing in the scope instance
             public T Resolve<T>() => Container.Resolve<T>(this);
 
             // Get cached instance for the given type (creates a new instance if not cached)
             public object GetCachedInstance(Type type, Func<IScopeCache, object> factory)
-            {
-                _instanceCache.TryGetValue(type, out var result);
-                if (result != null) return result;
-
-                lock (_syncRoot)
-                {
-                    _instanceCache.TryGetValue(type, out result);
-                    if (result != null) return result;
-
-                    _instanceCache[type] = factory(this);
-                }
-
-                return _instanceCache[type];
-            }
+                =>  _instanceCache.GetOrAdd(type, _ => factory(this));
 
             // No need to free resources, we use IDisposable to enable "using" syntax
             public void Dispose()
