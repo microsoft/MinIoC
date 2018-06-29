@@ -196,7 +196,8 @@ namespace Microsoft.MinIoC
                     Expression.New(constructor, constructor.GetParameters().Select(
                         param =>
                         {
-                            Func<IScopeCache, object> resolve = scopeCache => _registeredTypes[param.ParameterType].Resolve(scopeCache);
+                            var resolve = new Func<IScopeCache, object>(
+                                scopeCache => _registeredTypes[param.ParameterType].Resolve(scopeCache));
                             return Expression.Convert(
                                 Expression.Call(Expression.Constant(resolve.Target), resolve.Method, arg),
                                 param.ParameterType);
