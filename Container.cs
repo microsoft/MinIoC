@@ -10,12 +10,41 @@ using System.Reflection;
 namespace Microsoft.MinIoC
 {
     /// <summary>
+    /// IRegisteredType is return by Container.Register and allows further configuration for the registration
+    /// </summary>
+    interface IRegisteredType
+    {
+        /// <summary>
+        /// Make registered type a singleton
+        /// </summary>
+        void AsSingleton();
+
+        /// <summary>
+        /// Make registered type a per-scope type (single instance within a Scope)
+        /// </summary>
+        void PerScope();
+    }
+
+    /// <summary>
+    /// Represents a scope in which per-scope objects are instantiated a single time
+    /// </summary>
+    interface IScope : IDisposable
+    {
+        /// <summary>
+        /// Returns an implementation of the specified interface
+        /// </summary>
+        /// <typeparam name="T">Interface type</typeparam>
+        /// <returns>Object implementing the interface</returns>
+        T Resolve<T>();
+    }
+
+    /// <summary>
     /// Inversion of control container handles dependency injection for registered types
     /// </summary>
-    static class Container
+    class MinContainer
     {
         // Map of registered types
-        static private Dictionary<Type, ContainerItem> _registeredTypes = new Dictionary<Type, ContainerItem>();
+        private Dictionary<Type, ContainerItem> _registeredTypes = new Dictionary<Type, ContainerItem>();
 
         /// <summary>
         /// Registers an implementation type for the specified interface
@@ -23,9 +52,9 @@ namespace Microsoft.MinIoC
         /// <typeparam name="T">Interface to register</typeparam>
         /// <param name="type">Implementing type</param>
         /// <returns>IRegisteredType object</returns>
-        public static IRegisteredType Register<T>(Type type)
+        public IRegisteredType Register<T>(Type type)
         {
-            return _registeredTypes[typeof(T)] = ContainerItem.FromType(type);
+            return _registeredTypes[typeof(T)] = ContainerItem.FromType(this, type);
         }
 
         /// <summary>
@@ -34,7 +63,7 @@ namespace Microsoft.MinIoC
         /// <typeparam name="T">Interface to register</typeparam>
         /// <param name="factory">Factory method</param>
         /// <returns>IRegisteredType object</returns>
-        public static IRegisteredType Register<T>(Func<T> factory)
+        public IRegisteredType Register<T>(Func<T> factory)
         {
             return _registeredTypes[typeof(T)] = ContainerItem.FromFactory<T>(factory);
         }
@@ -44,7 +73,7 @@ namespace Microsoft.MinIoC
         /// </summary>
         /// <typeparam name="T">Interface type</typeparam>
         /// <returns>Object implementing the interface</returns>
-        public static T Resolve<T>()
+        public T Resolve<T>()
         {
             // Call internal Resolve with the scope null object
             // Per-scope objects are creates as instance objects in this case
@@ -55,25 +84,12 @@ namespace Microsoft.MinIoC
         /// Creates a new scope
         /// </summary>
         /// <returns>Scope object</returns>
-        public static IScope CreateScope() => new Scope();
+        public IScope CreateScope() => new Scope(this);
 
         // Resolve the given type within the given scope
-        private static T Resolve<T>(IScopeCache scope) => (T)_registeredTypes[typeof(T)].Resolve(scope);
+        private T Resolve<T>(IScopeCache scope) => (T)_registeredTypes[typeof(T)].Resolve(scope);
 
         #region Scope management to enable per-scope objects
-        /// <summary>
-        /// Represents a scope in which per-scope objects are instantiated a single time
-        /// </summary>
-        public interface IScope : IDisposable
-        {
-            /// <summary>
-            /// Returns an implementation of the specified interface
-            /// </summary>
-            /// <typeparam name="T">Interface type</typeparam>
-            /// <returns>Object implementing the interface</returns>
-            T Resolve<T>();
-        }
-
         // Object cache where per-scope objects are stored
         interface IScopeCache : IScope
         {
@@ -85,9 +101,12 @@ namespace Microsoft.MinIoC
         {
             public static IScopeCache Null { get; } = new NullScope();
             private ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
+            private MinContainer _container;
+
+            public Scope(MinContainer container) => _container = container;
 
             // Scope.Resolve invokes Container.Resolve passing in the scope instance
-            public T Resolve<T>() => Container.Resolve<T>(this);
+            public T Resolve<T>() => _container.Resolve<T>(this);
 
             // Get cached instance for the given type (creates a new instance if not cached)
             public object GetCachedInstance(Type type, Func<IScopeCache, object> factory)
@@ -117,22 +136,6 @@ namespace Microsoft.MinIoC
         #endregion
 
         #region Container items
-        /// <summary>
-        /// IRegisteredType is return by Container.Register and allows further configuration for the registration
-        /// </summary>
-        public interface IRegisteredType
-        {
-            /// <summary>
-            /// Make registered type a singleton
-            /// </summary>
-            void AsSingleton();
-
-            /// <summary>
-            /// Make registered type a per-scope type (single instance within a Scope)
-            /// </summary>
-            void PerScope();
-        }
-
         // Container item
         class ContainerItem : IRegisteredType
         {
@@ -150,9 +153,9 @@ namespace Microsoft.MinIoC
                 return new ContainerItem(typeof(T), scopeCache => factory());
             }
 
-            public static ContainerItem FromType(Type itemType)
+            public static ContainerItem FromType(MinContainer container, Type itemType)
             {
-                return new ContainerItem(itemType, FactoryFromType(itemType));
+                return new ContainerItem(itemType, FactoryFromType(container, itemType));
             }
 
             public void AsSingleton()
@@ -168,7 +171,7 @@ namespace Microsoft.MinIoC
             }
 
             // Compiles a lambda that calls the given type's first constructor resolving arguments
-            private static Func<IScopeCache, object> FactoryFromType(Type itemType)
+            private static Func<IScopeCache, object> FactoryFromType(MinContainer container, Type itemType)
             {
                 // Get first constructor for the type
                 var constructors = itemType.GetConstructors();
@@ -186,7 +189,7 @@ namespace Microsoft.MinIoC
                         param =>
                         {
                             var resolve = new Func<IScopeCache, object>(
-                                scopeCache => _registeredTypes[param.ParameterType].Resolve(scopeCache));
+                                scopeCache => container._registeredTypes[param.ParameterType].Resolve(scopeCache));
                             return Expression.Convert(
                                 Expression.Call(Expression.Constant(resolve.Target), resolve.Method, arg),
                                 param.ParameterType);
@@ -208,5 +211,42 @@ namespace Microsoft.MinIoC
             }
         }
         #endregion
+    }
+
+    /// <summary>
+    /// Static inversion of control container handles dependency injection for registered types
+    /// </summary>
+    static class Container
+    {
+        private static MinContainer _container = new MinContainer();
+
+        /// <summary>
+        /// Registers an implementation type for the specified interface
+        /// </summary>
+        /// <typeparam name="T">Interface to register</typeparam>
+        /// <param name="type">Implementing type</param>
+        /// <returns>IRegisteredType object</returns>
+        public static IRegisteredType Register<T>(Type type) => _container.Register<T>(type);
+
+        /// <summary>
+        /// Registers a factory function which will be called to resolve the specified interface
+        /// </summary>
+        /// <typeparam name="T">Interface to register</typeparam>
+        /// <param name="factory">Factory method</param>
+        /// <returns>IRegisteredType object</returns>
+        public static IRegisteredType Register<T>(Func<T> factory) => _container.Register<T>(factory);
+
+        /// <summary>
+        /// Returns an implementation of the specified interface
+        /// </summary>
+        /// <typeparam name="T">Interface type</typeparam>
+        /// <returns>Object implementing the interface</returns>
+        public static T Resolve<T>() => _container.Resolve<T>();
+
+        /// <summary>
+        /// Creates a new scope
+        /// </summary>
+        /// <returns>Scope object</returns>
+        public static IScope CreateScope() => _container.CreateScope();
     }
 }

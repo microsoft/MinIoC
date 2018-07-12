@@ -195,7 +195,8 @@ namespace Microsoft.MinIoC.Tests
         public void TearDown()
         {
             // Clear registered types after each test
-            (new PrivateType(typeof(Container)).GetStaticField("_registeredTypes") as IDictionary).Clear();
+            var container = new PrivateType(typeof(Container));
+            container.SetStaticField("_container", new MinContainer());
         }
 
         #region Types used for tests
