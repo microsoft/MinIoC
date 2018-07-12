@@ -93,9 +93,11 @@ namespace Microsoft.MinIoC
             public object GetCachedInstance(Type type, Func<IScopeCache, object> factory)
                 =>  _instanceCache.GetOrAdd(type, _ => factory(this));
 
-            // No need to free resources, we use IDisposable to enable "using" syntax
+            // Call Dispose() on cached IDisposable objects
             public void Dispose()
             {
+                foreach (var obj in _instanceCache.Values)
+                    (obj as IDisposable)?.Dispose();
             }
         }
 

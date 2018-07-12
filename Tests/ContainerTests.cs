@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
+using System;
 using System.Collections;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -176,6 +177,20 @@ namespace Microsoft.MinIoC.Tests
             Assert.IsInstanceOfType(baz.Foo, typeof(Foo));
         }
 
+        [TestMethod]
+        public void ScopeDisposesOfCachedInstances()
+        {
+            Container.Register<SpyDisposable>(typeof(SpyDisposable)).PerScope();
+            SpyDisposable spy;
+
+            using (var scope = Container.CreateScope())
+            {
+                spy = scope.Resolve<SpyDisposable>();
+            }
+
+            Assert.IsTrue(spy.Disposed);
+        }
+
         [TestCleanup]
         public void TearDown()
         {
@@ -220,6 +235,13 @@ namespace Microsoft.MinIoC.Tests
                 Foo = foo;
                 Bar = bar;
             }
+        }
+
+        class SpyDisposable : IDisposable
+        {
+            public bool Disposed { get; private set; }
+
+            public void Dispose() => Disposed = true;
         }
         #endregion
     }
