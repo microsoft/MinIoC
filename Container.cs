@@ -48,7 +48,7 @@ namespace Microsoft.MinIoC
         /// <summary>
         /// Creates a new instance of IoC Container
         /// </summary>
-        public Container() => _lifetime = new ContainerLifetime(type => _registeredTypes[type]);
+        public Container() => _lifetime = new ContainerLifetime(t => _registeredTypes[t]);
 
         /// <summary>
         /// Registers an implementation type for the specified interface
@@ -57,7 +57,7 @@ namespace Microsoft.MinIoC
         /// <param name="type">Implementing type</param>
         /// <returns>IRegisteredType object</returns>
         public IRegisteredType Register<T>(Type type)
-            => new RegisteredType(this, _registeredTypes[typeof(T)] = FactoryFromType(type), typeof(T));
+            => new RegisteredType<T>((t, f) => _registeredTypes[t] = f, FactoryFromType(type));
 
         /// <summary>
         /// Registers a factory function which will be called to resolve the specified interface
@@ -66,7 +66,7 @@ namespace Microsoft.MinIoC
         /// <param name="factory">Factory method</param>
         /// <returns>IRegisteredType object</returns>
         public IRegisteredType Register<T>(Func<T> factory)
-            => new RegisteredType(this, _registeredTypes[typeof(T)] = _ => factory(), typeof(T));
+            => new RegisteredType<T>((t, f) => _registeredTypes[t] = f,  _ => factory());
         
         /// <summary>
         /// Returns the object registered for the given type
@@ -82,7 +82,7 @@ namespace Microsoft.MinIoC
         public IScope CreateScope() => new ScopeLifetime(_lifetime);
 
         public void Dispose() => _lifetime.Dispose();
-
+        
         #region Lifetime management
         // ILifetime management adds resolution strategies to an IScope
         interface ILifetime : IScope
@@ -112,11 +112,11 @@ namespace Microsoft.MinIoC
         // Container lifetime management
         class ContainerLifetime : BaseLifetime, ILifetime
         {
-            // Function to get factory registered for type
-            public Func<Type, Func<ILifetime, object>> GetFactory { get; set; }
+            private Func<Type, Func<ILifetime, object>> _getFactory;
 
-            public ContainerLifetime(Func<Type, Func<ILifetime, object>> getFactory)
-                => GetFactory = getFactory;
+            public ContainerLifetime(Func<Type, Func<ILifetime, object>> getFactory) => _getFactory = getFactory;
+
+            public Func<ILifetime, object> GetFactory(Type type) => _getFactory(type);
 
             // Calls given _getFactory function
             public object GetService(Type type) => GetFactory(type)(this);
@@ -136,8 +136,7 @@ namespace Microsoft.MinIoC
             // Singletons come from parent container's lifetime
             private ContainerLifetime _parentContainer;
 
-            public ScopeLifetime(ContainerLifetime parentContainer)
-                => _parentContainer = parentContainer;
+            public ScopeLifetime(ContainerLifetime parentContainer) => _parentContainer = parentContainer;
 
             // Calls given _getFactory function
             public object GetService(Type type) => _parentContainer.GetFactory(type)(this);
@@ -182,26 +181,24 @@ namespace Microsoft.MinIoC
 
         // RegisteredType is supposed to be a short lived object tying an item to its container
         // and allowing users to mark it as a singleton or per-scope item
-        class RegisteredType : IRegisteredType
+        class RegisteredType<T> : IRegisteredType
         {
-            private Container _container;
+            Action<Type, Func<ILifetime, object>> _registerFactory;
             Func<ILifetime, object> _factory;
-            private Type _itemType;
 
-            public RegisteredType(Container container, Func<ILifetime, object> factory, Type itemType)
+            public RegisteredType(Action<Type, Func<ILifetime, object>> registerFactory, Func<ILifetime, object> factory)
             {
-                _container = container;
+                _registerFactory = registerFactory;
                 _factory = factory;
-                _itemType = itemType;
+
+                registerFactory(typeof(T), _factory);
             }
 
             public void AsSingleton()
-                => _container._registeredTypes[_itemType] =
-                    lifetime => lifetime.GetServiceAsSingleton(_itemType, _factory);
+                => _registerFactory(typeof(T), lifetime => lifetime.GetServiceAsSingleton(typeof(T), _factory));
 
             public void PerScope() 
-                => _container._registeredTypes[_itemType] =
-                    lifetime => lifetime.GetServicePerScope(_itemType, _factory);
+                => _registerFactory(typeof(T), lifetime => lifetime.GetServicePerScope(typeof(T), _factory));
         }
         #endregion
     }
