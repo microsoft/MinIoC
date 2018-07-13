@@ -58,7 +58,7 @@ namespace Microsoft.MinIoC
         /// <param name="type">Implementing type</param>
         /// <returns>IRegisteredType object</returns>
         public IRegisteredType Register<T>(Type type)
-            => new RegisteredType(this, _registeredTypes[typeof(T)] = ContainerItem.FromType(type));
+            => new RegisteredType(this, _registeredTypes[typeof(T)] = ContainerItem.FromType(type), typeof(T));
 
         /// <summary>
         /// Registers a factory function which will be called to resolve the specified interface
@@ -67,7 +67,7 @@ namespace Microsoft.MinIoC
         /// <param name="factory">Factory method</param>
         /// <returns>IRegisteredType object</returns>
         public IRegisteredType Register<T>(Func<T> factory)
-            => new RegisteredType(this, _registeredTypes[typeof(T)] = ContainerItem.FromFactory<T>(factory));
+            => new RegisteredType(this, _registeredTypes[typeof(T)] = ContainerItem.FromFactory<T>(factory), typeof(T));
 
         /// <summary>
         /// Returns an implementation of the specified interface
@@ -123,24 +123,15 @@ namespace Microsoft.MinIoC
         // Container item
         class ContainerItem
         {
-            public Type ItemType { get; private set; }
             public Func<Container, object> Resolve { get; set; }
 
-            private ContainerItem(Type itemType, Func<Container, object> factory)
-            {
-                ItemType = itemType;
-                Resolve = factory;
-            }
-
+            private ContainerItem(Func<Container, object> resolve) => Resolve = resolve;
+            
             public static ContainerItem FromFactory<T>(Func<T> factory)
-            {
-                return new ContainerItem(typeof(T), _ => factory());
-            }
+                => new ContainerItem(_ => factory);
 
             public static ContainerItem FromType(Type itemType)
-            {
-                return new ContainerItem(itemType, FactoryFromType(itemType));
-            }
+                => new ContainerItem(FactoryFromType(itemType));
 
             // Compiles a lambda that calls the given type's first constructor resolving arguments
             private static Func<Container, object> FactoryFromType(Type itemType)
@@ -174,13 +165,15 @@ namespace Microsoft.MinIoC
         // and allowing users to mark it as a singleton or per-scope item
         class RegisteredType : IRegisteredType
         {
-            private Container _container { get; set; }
-            private ContainerItem _item { get; set; }
+            private Container _container;
+            private ContainerItem _item;
+            private Type _itemType;
 
-            public RegisteredType(Container container, ContainerItem item)
+            public RegisteredType(Container container, ContainerItem item, Type itemType)
             {
                 _container = container;
                 _item = item;
+                _itemType = itemType;
             }
 
             public void AsSingleton() => _item.Resolve = SingletonDecorator(_item.Resolve);
@@ -188,10 +181,10 @@ namespace Microsoft.MinIoC
             public void PerScope() => _item.Resolve = PerScopeDecorator(_item.Resolve);
 
             private Func<Container, object> SingletonDecorator(Func<Container, object> factory)
-                => container => container.ResolveSingleton(_item.ItemType, factory);
+                => container => container.ResolveSingleton(_itemType, factory);
 
             private Func<Container, object> PerScopeDecorator(Func<Container, object> factory)
-                => container => container.ResolvePerScope(_item.ItemType, factory);
+                => container => container.ResolvePerScope(_itemType, factory);
         }
         #endregion
     }
