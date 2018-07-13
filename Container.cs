@@ -48,7 +48,7 @@ namespace Microsoft.MinIoC
         /// <summary>
         /// Creates a new instance of IoC Container
         /// </summary>
-        public Container() => _lifetime = new ContainerLifetime(this);
+        public Container() => _lifetime = new ContainerLifetime(type => _registeredTypes[type]);
 
         /// <summary>
         /// Registers an implementation type for the specified interface
@@ -79,7 +79,7 @@ namespace Microsoft.MinIoC
         /// Creates a new scope
         /// </summary>
         /// <returns>Scope object</returns>
-        public IScope CreateScope() => new ScopeLifetime(this);
+        public IScope CreateScope() => new ScopeLifetime(type => _registeredTypes[type], _lifetime);
 
         public void Dispose() => _lifetime.Dispose();
 
@@ -93,15 +93,18 @@ namespace Microsoft.MinIoC
 
         abstract class BaseContainer : ILifetime
         {
-            // Container
-            protected Container _container;
+            // Function to get factory registered for type
+            private Func<Type, Func<ILifetime, object>> _getFactory;
 
             // Instance cache
             protected ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
 
-            public BaseContainer(Container container) => _container = container;
+            public BaseContainer(Func<Type, Func<ILifetime, object>> getFactory)
+            {
+                _getFactory = getFactory;
+            }
 
-            public object GetService(Type type) => _container._registeredTypes[type](this);
+            public object GetService(Type type) => _getFactory(type)(this);
 
             public abstract object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory);
 
@@ -116,8 +119,8 @@ namespace Microsoft.MinIoC
 
         class ContainerLifetime : BaseContainer
         {
-            public ContainerLifetime(Container container)
-                : base(container)
+            public ContainerLifetime(Func<Type, Func<ILifetime, object>> getFactory)
+                : base(getFactory)
             { }
 
             public override object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory) 
@@ -129,15 +132,19 @@ namespace Microsoft.MinIoC
 
         class ScopeLifetime : BaseContainer
         {
-            public ScopeLifetime(Container container)
-                : base(container)
-            { }
+            private ILifetime _singletonLifetime;
+
+            public ScopeLifetime(Func<Type, Func<ILifetime, object>> getFactory, ILifetime singletonLifetime)
+                : base(getFactory)
+            {
+                _singletonLifetime = singletonLifetime;
+            }
 
             public override object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory)
-                => _container._lifetime.GetServiceAsSingleton(type, factory);
+                => _singletonLifetime.GetServiceAsSingleton(type, factory);
 
             public override object GetServicePerScope(Type type, Func<ILifetime, object> factory)
-                => _instanceCache.GetOrAdd(type, _ => factory(_container._lifetime));
+                => _instanceCache.GetOrAdd(type, _ => factory(_singletonLifetime));
         }
         #endregion
 
