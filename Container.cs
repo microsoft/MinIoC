@@ -89,17 +89,19 @@ namespace Microsoft.MinIoC
             {
                 case Lifetime.PerScope: return ResolvePerScope(type);
                 case Lifetime.Singleton: return ResolveSingleton(type);
-                default:
-                    return _registeredTypes[type].Resolve(this);
+                default: return item.Resolve(this);
             }
         }
 
+        // Singleton resolution strategy
         protected virtual object ResolveSingleton(Type type)
             => _instanceCache.GetOrAdd(type, _ => _registeredTypes[type].Resolve(this));
 
+        // Per-scope resolution strategy
         protected virtual object ResolvePerScope(Type type)
             => _registeredTypes[type].Resolve(this);
 
+        // Scope is a Container
         class Scope : Container
         {
             private Container _parent;
@@ -109,16 +111,13 @@ namespace Microsoft.MinIoC
                 _parent = parent;
                 _registeredTypes = _parent._registeredTypes;
             }
+            
+            // Delegate singleton resolution to parent scope
+            protected override object ResolveSingleton(Type type) => _parent.ResolveSingleton(type);
 
-            protected override object ResolveSingleton(Type type)
-            {
-                return _parent.ResolveSingleton(type);
-            }
-
+            // Cache per-scope instances
             protected override object ResolvePerScope(Type type)
-            {
-                return _instanceCache.GetOrAdd(type, _ => _parent._registeredTypes[type].Resolve(_parent));
-            }
+                => _instanceCache.GetOrAdd(type, _ => _registeredTypes[type].Resolve(this));
         }
 
         /// <summary>
@@ -133,14 +132,15 @@ namespace Microsoft.MinIoC
                 (obj as IDisposable)?.Dispose();
         }
 
-        public enum Lifetime
+        #region Container items
+        // An item can have instance, singleton, or per-scope lifetime
+        enum Lifetime
         {
             Instance,
             Singleton,
             PerScope
         }
 
-        #region Container items
         // Container item
         class ContainerItem : IRegisteredType
         {
