@@ -12,7 +12,7 @@ namespace Microsoft.MinIoC
     /// <summary>
     /// Inversion of control container handles dependency injection for registered types
     /// </summary>
-    class Container : Container.IScope
+    public class Container : Container.IScope
     {
         #region Public interfaces
         /// <summary>
@@ -43,7 +43,7 @@ namespace Microsoft.MinIoC
         private Dictionary<Type, Func<ILifetime, object>> _registeredTypes = new Dictionary<Type, Func<ILifetime, object>>();
 
         // Lifetime management
-        private ILifetime _lifetime;
+        private ContainerLifetime _lifetime;
 
         /// <summary>
         /// Creates a new instance of IoC Container
@@ -73,13 +73,13 @@ namespace Microsoft.MinIoC
         /// </summary>
         /// <param name="type">Type as registered with the container</param>
         /// <returns>Instance of the registered type</returns>
-        public object GetService(Type type) => _lifetime.GetService(type);
+        public object GetService(Type type) => _registeredTypes[type](_lifetime);
 
         /// <summary>
         /// Creates a new scope
         /// </summary>
         /// <returns>Scope object</returns>
-        public IScope CreateScope() => new ScopeLifetime(type => _registeredTypes[type], _lifetime);
+        public IScope CreateScope() => new ScopeLifetime(_lifetime);
 
         public void Dispose() => _lifetime.Dispose();
 
@@ -92,27 +92,15 @@ namespace Microsoft.MinIoC
             object GetServicePerScope(Type type, Func<ILifetime, object> factory);
         }
 
-        // Base lifetime provides common caching and resolution logic
-        abstract class BaseLifetime : ILifetime
+        // Base lifetime provides common caching logic
+        abstract class BaseLifetime
         {
-            // Function to get factory registered for type
-            private Func<Type, Func<ILifetime, object>> _getFactory;
-
             // Instance cache
             private ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
 
-            public BaseLifetime(Func<Type, Func<ILifetime, object>> getFactory) => _getFactory = getFactory;
-
-            // Calls given _getFactory function
-            public object GetService(Type type) => _getFactory(type)(this);
-
-            public abstract object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory);
-
-            public abstract object GetServicePerScope(Type type, Func<ILifetime, object> factory);
-
             // Get from cache or create and cache object
-            protected object GetCached(Type type, Func<ILifetime, object> factory)
-                => _instanceCache.GetOrAdd(type, _ => factory(this));
+            protected object GetCached(Type type, Func<ILifetime, object> factory, ILifetime lifetime)
+                => _instanceCache.GetOrAdd(type, _ => factory(lifetime));
 
             public void Dispose()
             {
@@ -122,37 +110,45 @@ namespace Microsoft.MinIoC
         }
 
         // Container lifetime management
-        class ContainerLifetime : BaseLifetime
+        class ContainerLifetime : BaseLifetime, ILifetime
         {
+            // Function to get factory registered for type
+            public Func<Type, Func<ILifetime, object>> GetFactory { get; set; }
+
             public ContainerLifetime(Func<Type, Func<ILifetime, object>> getFactory)
-                : base(getFactory)
-            { }
+                => GetFactory = getFactory;
+
+            // Calls given _getFactory function
+            public object GetService(Type type) => GetFactory(type)(this);
 
             // Singletons get cached per container
-            public override object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory)
-                => GetCached(type, factory);
+            public object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory)
+                => GetCached(type, factory, this);
 
             // At container level, per-scope items are not cached
-            public override object GetServicePerScope(Type type, Func<ILifetime, object> factory)
+            public object GetServicePerScope(Type type, Func<ILifetime, object> factory)
                 => factory(this);
         }
 
         // Per-scope lifetime management
-        class ScopeLifetime : BaseLifetime
+        class ScopeLifetime : BaseLifetime, ILifetime
         {
             // Singletons come from parent container's lifetime
-            private ILifetime _singletonLifetime;
+            private ContainerLifetime _parentContainer;
 
-            public ScopeLifetime(Func<Type, Func<ILifetime, object>> getFactory, ILifetime singletonLifetime)
-                : base(getFactory) => _singletonLifetime = singletonLifetime;
+            public ScopeLifetime(ContainerLifetime parentContainer)
+                => _parentContainer = parentContainer;
+
+            // Calls given _getFactory function
+            public object GetService(Type type) => _parentContainer.GetFactory(type)(this);
 
             // Singleton resolution is delegated to given lifetime
-            public override object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory)
-                => _singletonLifetime.GetServiceAsSingleton(type, factory);
+            public object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory)
+                => _parentContainer.GetServiceAsSingleton(type, factory);
 
             // Per-scope objects get cached
-            public override object GetServicePerScope(Type type, Func<ILifetime, object> factory)
-                => GetCached(type, factory);
+            public object GetServicePerScope(Type type, Func<ILifetime, object> factory)
+                => GetCached(type, factory, this);
         }
         #endregion
 
@@ -213,7 +209,7 @@ namespace Microsoft.MinIoC
     /// <summary>
     /// Extension methods for Container.IScope
     /// </summary>
-    static class IScopeExtensions
+    public static class IScopeExtensions
     {
         /// <summary>
         /// Returns an implementation of the specified interface
