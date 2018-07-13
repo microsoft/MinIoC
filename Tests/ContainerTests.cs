@@ -9,6 +9,14 @@ namespace Microsoft.MinIoC.Tests
     [TestClass]
     public class ContainerTests
     {
+        private Container Container { get; set; }
+
+        [TestInitialize]
+        public void Initialize()
+        {
+            Container = new Container();
+        }
+
         [TestMethod]
         public void SimpleReflectionConstruction()
         {
@@ -189,14 +197,6 @@ namespace Microsoft.MinIoC.Tests
             }
 
             Assert.IsTrue(spy.Disposed);
-        }
-
-        [TestCleanup]
-        public void TearDown()
-        {
-            // Clear registered types after each test
-            var container = new PrivateType(typeof(Container));
-            container.SetStaticField("_container", new MinContainer());
         }
 
         #region Types used for tests
