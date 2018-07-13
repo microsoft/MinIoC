@@ -50,7 +50,7 @@ namespace Microsoft.MinIoC
         
         // Instance cache
         private ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
-        
+
         /// <summary>
         /// Registers an implementation type for the specified interface
         /// </summary>
@@ -58,9 +58,7 @@ namespace Microsoft.MinIoC
         /// <param name="type">Implementing type</param>
         /// <returns>IRegisteredType object</returns>
         public IRegisteredType Register<T>(Type type)
-        {
-            return _registeredTypes[typeof(T)] = ContainerItem.FromType(type);
-        }
+            => new RegisteredType(this, _registeredTypes[typeof(T)] = ContainerItem.FromType(type));
 
         /// <summary>
         /// Registers a factory function which will be called to resolve the specified interface
@@ -69,9 +67,7 @@ namespace Microsoft.MinIoC
         /// <param name="factory">Factory method</param>
         /// <returns>IRegisteredType object</returns>
         public IRegisteredType Register<T>(Func<T> factory)
-        {
-            return _registeredTypes[typeof(T)] = ContainerItem.FromFactory<T>(factory);
-        }
+            => new RegisteredType(this, _registeredTypes[typeof(T)] = ContainerItem.FromFactory<T>(factory));
 
         /// <summary>
         /// Returns an implementation of the specified interface
@@ -81,25 +77,15 @@ namespace Microsoft.MinIoC
         public T Resolve<T>() => (T)Resolve(typeof(T));
 
         // Resolve the given type
-        private object Resolve(Type type)
-        {
-            var item = _registeredTypes[type];
-
-            switch (item.Lifetime)
-            {
-                case Lifetime.PerScope: return ResolvePerScope(type);
-                case Lifetime.Singleton: return ResolveSingleton(type);
-                default: return item.Resolve(this);
-            }
-        }
+        private object Resolve(Type type) => _registeredTypes[type].Resolve(this);
 
         // Singleton resolution strategy
-        protected virtual object ResolveSingleton(Type type)
-            => _instanceCache.GetOrAdd(type, _ => _registeredTypes[type].Resolve(this));
+        protected virtual object ResolveSingleton(Type type, Func<Container, object> factory)
+            => _instanceCache.GetOrAdd(type, _ => factory(this));
 
         // Per-scope resolution strategy
-        protected virtual object ResolvePerScope(Type type)
-            => _registeredTypes[type].Resolve(this);
+        protected virtual object ResolvePerScope(Type type, Func<Container, object> factory)
+            => factory(this);
 
         // Scope is a Container
         class Scope : Container
@@ -113,11 +99,12 @@ namespace Microsoft.MinIoC
             }
             
             // Delegate singleton resolution to parent scope
-            protected override object ResolveSingleton(Type type) => _parent.ResolveSingleton(type);
+            protected override object ResolveSingleton(Type type, Func<Container, object> factory)
+                => _parent.ResolveSingleton(type, factory);
 
             // Cache per-scope instances
-            protected override object ResolvePerScope(Type type)
-                => _instanceCache.GetOrAdd(type, _ => _registeredTypes[type].Resolve(this));
+            protected override object ResolvePerScope(Type type, Func<Container, object> factory)
+                => _instanceCache.GetOrAdd(type, _ => factory(this));
         }
 
         /// <summary>
@@ -133,25 +120,15 @@ namespace Microsoft.MinIoC
         }
 
         #region Container items
-        // An item can have instance, singleton, or per-scope lifetime
-        enum Lifetime
-        {
-            Instance,
-            Singleton,
-            PerScope
-        }
-
         // Container item
-        class ContainerItem : IRegisteredType
+        class ContainerItem
         {
-            private Type _itemType;
+            public Type ItemType { get; private set; }
             public Func<Container, object> Resolve { get; set; }
-
-            public Lifetime Lifetime { get; set; } = Lifetime.Instance;
 
             private ContainerItem(Type itemType, Func<Container, object> factory)
             {
-                _itemType = itemType;
+                ItemType = itemType;
                 Resolve = factory;
             }
 
@@ -164,10 +141,6 @@ namespace Microsoft.MinIoC
             {
                 return new ContainerItem(itemType, FactoryFromType(itemType));
             }
-
-            public void AsSingleton() => Lifetime = Lifetime.Singleton;
-
-            public void PerScope() => Lifetime = Lifetime.PerScope;
 
             // Compiles a lambda that calls the given type's first constructor resolving arguments
             private static Func<Container, object> FactoryFromType(Type itemType)
@@ -195,6 +168,30 @@ namespace Microsoft.MinIoC
                         })),
                     arg).Compile();
             }
+        }
+
+        // RegisteredType is supposed to be a short lived object tying an item to its container
+        // and allowing users to mark it as a singleton or per-scope item
+        class RegisteredType : IRegisteredType
+        {
+            private Container _container { get; set; }
+            private ContainerItem _item { get; set; }
+
+            public RegisteredType(Container container, ContainerItem item)
+            {
+                _container = container;
+                _item = item;
+            }
+
+            public void AsSingleton() => _item.Resolve = SingletonDecorator(_item.Resolve);
+
+            public void PerScope() => _item.Resolve = PerScopeDecorator(_item.Resolve);
+
+            private Func<Container, object> SingletonDecorator(Func<Container, object> factory)
+                => container => container.ResolveSingleton(_item.ItemType, factory);
+
+            private Func<Container, object> PerScopeDecorator(Func<Container, object> factory)
+                => container => container.ResolvePerScope(_item.ItemType, factory);
         }
         #endregion
     }
