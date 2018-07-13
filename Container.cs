@@ -14,6 +14,7 @@ namespace Microsoft.MinIoC
     /// </summary>
     class Container : Container.IScope
     {
+        #region Public interfaces
         /// <summary>
         /// Represents a scope in which per-scope objects are instantiated a single time
         /// </summary>
@@ -42,16 +43,14 @@ namespace Microsoft.MinIoC
             /// </summary>
             void PerScope();
         }
+        #endregion
 
         // Map of registered types
         private Dictionary<Type, ContainerItem> _registeredTypes = new Dictionary<Type, ContainerItem>();
         
         // Instance cache
         private ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
-
-        // Parent container
-        private Container _parent = null;
-
+        
         /// <summary>
         /// Registers an implementation type for the specified interface
         /// </summary>
@@ -82,31 +81,63 @@ namespace Microsoft.MinIoC
         public T Resolve<T>() => (T)Resolve(typeof(T));
 
         // Resolve the given type
-        private object Resolve(Type type) => _registeredTypes[type].Resolve(this);
+        private object Resolve(Type type)
+        {
+            var item = _registeredTypes[type];
+
+            switch (item.Lifetime)
+            {
+                case Lifetime.PerScope: return ResolvePerScope(type);
+                case Lifetime.Singleton: return ResolveSingleton(type);
+                default:
+                    return _registeredTypes[type].Resolve(this);
+            }
+        }
+
+        protected virtual object ResolveSingleton(Type type)
+            => _instanceCache.GetOrAdd(type, _ => _registeredTypes[type].Resolve(this));
+
+        protected virtual object ResolvePerScope(Type type)
+            => _registeredTypes[type].Resolve(this);
+
+        class Scope : Container
+        {
+            private Container _parent;
+
+            public Scope(Container parent)
+            {
+                _parent = parent;
+                _registeredTypes = _parent._registeredTypes;
+            }
+
+            protected override object ResolveSingleton(Type type)
+            {
+                return _parent.ResolveSingleton(type);
+            }
+
+            protected override object ResolvePerScope(Type type)
+            {
+                return _instanceCache.GetOrAdd(type, _ => _parent._registeredTypes[type].Resolve(_parent));
+            }
+        }
 
         /// <summary>
         /// Creates a new scope
         /// </summary>
         /// <returns>Scope object</returns>
-        public IScope CreateScope()
-        {
-            // Create a new container
-            var scope = new Container() { _parent = this };
-
-            // Clone registered types
-            foreach (var kv in _registeredTypes)
-            {
-                scope._registeredTypes[kv.Key] = kv.Value.Clone(kv.Key);
-            }
-
-            return scope;
-        }
-
-        // Call Dispose() on cached IDisposable objects
+        public IScope CreateScope() => new Scope(this);
+        
         public void Dispose()
         {
             foreach (var obj in _instanceCache.Values)
                 (obj as IDisposable)?.Dispose();
+        }
+
+        public enum Lifetime
+        {
+            Instance,
+            Singleton,
+            PerScope
         }
 
         #region Container items
@@ -115,15 +146,13 @@ namespace Microsoft.MinIoC
         {
             private Type _itemType;
             public Func<Container, object> Resolve { get; set; }
-            public Func<Type, ContainerItem> Clone { get; set; }
+
+            public Lifetime Lifetime { get; set; } = Lifetime.Instance;
 
             private ContainerItem(Type itemType, Func<Container, object> factory)
             {
                 _itemType = itemType;
                 Resolve = factory;
-
-                // By default Clone just returns this object
-                Clone = _ => this;
             }
 
             public static ContainerItem FromFactory<T>(Func<T> factory)
@@ -136,20 +165,9 @@ namespace Microsoft.MinIoC
                 return new ContainerItem(itemType, FactoryFromType(itemType));
             }
 
-            public void AsSingleton()
-            {
-                // Decorate factory with singleton resolution
-                Resolve = CacheDecorator(_itemType, Resolve);
+            public void AsSingleton() => Lifetime = Lifetime.Singleton;
 
-                // Clone returns a new instance calling Resolve on parent container
-                Clone = type => new ContainerItem(_itemType, container => container._parent.Resolve(type));
-            }
-
-            public void PerScope()
-            {
-                // Clone returns a new instance decorated with caching logic
-                Clone = _ => new ContainerItem(_itemType, CacheDecorator(_itemType, Resolve));
-            }
+            public void PerScope() => Lifetime = Lifetime.PerScope;
 
             // Compiles a lambda that calls the given type's first constructor resolving arguments
             private static Func<Container, object> FactoryFromType(Type itemType)
@@ -176,12 +194,6 @@ namespace Microsoft.MinIoC
                                 param.ParameterType);
                         })),
                     arg).Compile();
-            }
-
-            // Cache decorator adds caching to the factory
-            private static Func<Container, object> CacheDecorator(Type type, Func<Container, object> factory)
-            {
-                return container => container._instanceCache.GetOrAdd(type, factory(container));
             }
         }
         #endregion
