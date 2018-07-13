@@ -46,7 +46,7 @@ namespace Microsoft.MinIoC
         #endregion
 
         // Map of registered types
-        private Dictionary<Type, ContainerItem> _registeredTypes = new Dictionary<Type, ContainerItem>();
+        private Dictionary<Type, Func<Container, object>> _registeredTypes = new Dictionary<Type, Func<Container, object>>();
         
         // Instance cache
         private ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
@@ -58,7 +58,7 @@ namespace Microsoft.MinIoC
         /// <param name="type">Implementing type</param>
         /// <returns>IRegisteredType object</returns>
         public IRegisteredType Register<T>(Type type)
-            => new RegisteredType(this, _registeredTypes[typeof(T)] = ContainerItem.FromType(type), typeof(T));
+            => new RegisteredType(this, _registeredTypes[typeof(T)] = FactoryFromType(type), typeof(T));
 
         /// <summary>
         /// Registers a factory function which will be called to resolve the specified interface
@@ -67,7 +67,7 @@ namespace Microsoft.MinIoC
         /// <param name="factory">Factory method</param>
         /// <returns>IRegisteredType object</returns>
         public IRegisteredType Register<T>(Func<T> factory)
-            => new RegisteredType(this, _registeredTypes[typeof(T)] = ContainerItem.FromFactory<T>(factory), typeof(T));
+            => new RegisteredType(this, _registeredTypes[typeof(T)] = _ => factory(), typeof(T));
 
         /// <summary>
         /// Returns an implementation of the specified interface
@@ -77,7 +77,7 @@ namespace Microsoft.MinIoC
         public T Resolve<T>() => (T)Resolve(typeof(T));
 
         // Resolve the given type
-        private object Resolve(Type type) => _registeredTypes[type].Resolve(this);
+        private object Resolve(Type type) => _registeredTypes[type](this);
 
         // Singleton resolution strategy
         protected virtual object ResolveSingleton(Type type, Func<Container, object> factory)
@@ -120,45 +120,31 @@ namespace Microsoft.MinIoC
         }
 
         #region Container items
-        // Container item
-        class ContainerItem
+        // Compiles a lambda that calls the given type's first constructor resolving arguments
+        private static Func<Container, object> FactoryFromType(Type itemType)
         {
-            public Func<Container, object> Resolve { get; set; }
-
-            private ContainerItem(Func<Container, object> resolve) => Resolve = resolve;
-            
-            public static ContainerItem FromFactory<T>(Func<T> factory)
-                => new ContainerItem(_ => factory);
-
-            public static ContainerItem FromType(Type itemType)
-                => new ContainerItem(FactoryFromType(itemType));
-
-            // Compiles a lambda that calls the given type's first constructor resolving arguments
-            private static Func<Container, object> FactoryFromType(Type itemType)
+            // Get first constructor for the type
+            var constructors = itemType.GetConstructors();
+            if (constructors.Length == 0)
             {
-                // Get first constructor for the type
-                var constructors = itemType.GetConstructors();
-                if (constructors.Length == 0)
-                {
-                    // If no public constructor found, search for an internal constructor
-                    constructors = itemType.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic);
-                }
-                var constructor = constructors.First();
-
-                // Compile constructor call as a lambda expression
-                var arg = Expression.Parameter(typeof(Container));
-                return (Func<Container, object>)Expression.Lambda(
-                    Expression.New(constructor, constructor.GetParameters().Select(
-                        param =>
-                        {
-                            var resolve = new Func<Container, object>(
-                                container => container.Resolve(param.ParameterType));
-                            return Expression.Convert(
-                                Expression.Call(Expression.Constant(resolve.Target), resolve.Method, arg),
-                                param.ParameterType);
-                        })),
-                    arg).Compile();
+                // If no public constructor found, search for an internal constructor
+                constructors = itemType.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic);
             }
+            var constructor = constructors.First();
+
+            // Compile constructor call as a lambda expression
+            var arg = Expression.Parameter(typeof(Container));
+            return (Func<Container, object>)Expression.Lambda(
+                Expression.New(constructor, constructor.GetParameters().Select(
+                    param =>
+                    {
+                        var resolve = new Func<Container, object>(
+                            container => container.Resolve(param.ParameterType));
+                        return Expression.Convert(
+                            Expression.Call(Expression.Constant(resolve.Target), resolve.Method, arg),
+                            param.ParameterType);
+                    })),
+                arg).Compile();
         }
 
         // RegisteredType is supposed to be a short lived object tying an item to its container
@@ -166,25 +152,23 @@ namespace Microsoft.MinIoC
         class RegisteredType : IRegisteredType
         {
             private Container _container;
-            private ContainerItem _item;
+            Func<Container, object> _factory;
             private Type _itemType;
 
-            public RegisteredType(Container container, ContainerItem item, Type itemType)
+            public RegisteredType(Container container, Func<Container, object> factory, Type itemType)
             {
                 _container = container;
-                _item = item;
+                _factory = factory;
                 _itemType = itemType;
             }
 
-            public void AsSingleton() => _item.Resolve = SingletonDecorator(_item.Resolve);
+            public void AsSingleton()
+                => _container._registeredTypes[_itemType] =
+                    container => container.ResolveSingleton(_itemType, _factory);
 
-            public void PerScope() => _item.Resolve = PerScopeDecorator(_item.Resolve);
-
-            private Func<Container, object> SingletonDecorator(Func<Container, object> factory)
-                => container => container.ResolveSingleton(_itemType, factory);
-
-            private Func<Container, object> PerScopeDecorator(Func<Container, object> factory)
-                => container => container.ResolvePerScope(_itemType, factory);
+            public void PerScope() 
+                => _container._registeredTypes[_itemType] = 
+                    container => container.ResolvePerScope(_itemType, _factory);
         }
         #endregion
     }
