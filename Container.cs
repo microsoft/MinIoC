@@ -91,7 +91,7 @@ namespace Microsoft.MinIoC
             object GetServicePerScope(Type type, Func<ILifetime, object> factory);
         }
 
-        abstract class BaseContainer : ILifetime
+        abstract class BaseLifetime : ILifetime
         {
             // Function to get factory registered for type
             private Func<Type, Func<ILifetime, object>> _getFactory;
@@ -99,16 +99,16 @@ namespace Microsoft.MinIoC
             // Instance cache
             protected ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
 
-            public BaseContainer(Func<Type, Func<ILifetime, object>> getFactory)
-            {
-                _getFactory = getFactory;
-            }
+            public BaseLifetime(Func<Type, Func<ILifetime, object>> getFactory) => _getFactory = getFactory;
 
             public object GetService(Type type) => _getFactory(type)(this);
 
             public abstract object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory);
 
             public abstract object GetServicePerScope(Type type, Func<ILifetime, object> factory);
+
+            protected object GetCached(Type type, Func<ILifetime, object> factory)
+                => _instanceCache.GetOrAdd(type, _ => factory(this));
 
             public void Dispose()
             {
@@ -117,20 +117,20 @@ namespace Microsoft.MinIoC
             }
         }
 
-        class ContainerLifetime : BaseContainer
+        class ContainerLifetime : BaseLifetime
         {
             public ContainerLifetime(Func<Type, Func<ILifetime, object>> getFactory)
                 : base(getFactory)
             { }
 
-            public override object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory) 
-                => _instanceCache.GetOrAdd(type, _ => factory(this));
+            public override object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory)
+                => GetCached(type, factory);
 
             public override object GetServicePerScope(Type type, Func<ILifetime, object> factory)
                 => factory(this);
         }
 
-        class ScopeLifetime : BaseContainer
+        class ScopeLifetime : BaseLifetime
         {
             private ILifetime _singletonLifetime;
 
@@ -144,7 +144,7 @@ namespace Microsoft.MinIoC
                 => _singletonLifetime.GetServiceAsSingleton(type, factory);
 
             public override object GetServicePerScope(Type type, Func<ILifetime, object> factory)
-                => _instanceCache.GetOrAdd(type, _ => factory(_singletonLifetime));
+                => GetCached(type, factory);
         }
         #endregion
 
