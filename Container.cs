@@ -84,6 +84,7 @@ namespace Microsoft.MinIoC
         public void Dispose() => _lifetime.Dispose();
 
         #region Lifetime management
+        // ILifetime management adds resolution strategies to an IScope
         interface ILifetime : IScope
         {
             object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory);
@@ -91,22 +92,25 @@ namespace Microsoft.MinIoC
             object GetServicePerScope(Type type, Func<ILifetime, object> factory);
         }
 
+        // Base lifetime provides common caching and resolution logic
         abstract class BaseLifetime : ILifetime
         {
             // Function to get factory registered for type
             private Func<Type, Func<ILifetime, object>> _getFactory;
 
             // Instance cache
-            protected ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
+            private ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
 
             public BaseLifetime(Func<Type, Func<ILifetime, object>> getFactory) => _getFactory = getFactory;
 
+            // Calls given _getFactory function
             public object GetService(Type type) => _getFactory(type)(this);
 
             public abstract object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory);
 
             public abstract object GetServicePerScope(Type type, Func<ILifetime, object> factory);
 
+            // Get from cache or create and cache object
             protected object GetCached(Type type, Func<ILifetime, object> factory)
                 => _instanceCache.GetOrAdd(type, _ => factory(this));
 
@@ -117,32 +121,36 @@ namespace Microsoft.MinIoC
             }
         }
 
+        // Container lifetime management
         class ContainerLifetime : BaseLifetime
         {
             public ContainerLifetime(Func<Type, Func<ILifetime, object>> getFactory)
                 : base(getFactory)
             { }
 
+            // Singletons get cached per container
             public override object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory)
                 => GetCached(type, factory);
 
+            // At container level, per-scope items are not cached
             public override object GetServicePerScope(Type type, Func<ILifetime, object> factory)
                 => factory(this);
         }
 
+        // Per-scope lifetime management
         class ScopeLifetime : BaseLifetime
         {
+            // Singletons come from parent container's lifetime
             private ILifetime _singletonLifetime;
 
             public ScopeLifetime(Func<Type, Func<ILifetime, object>> getFactory, ILifetime singletonLifetime)
-                : base(getFactory)
-            {
-                _singletonLifetime = singletonLifetime;
-            }
+                : base(getFactory) => _singletonLifetime = singletonLifetime;
 
+            // Singleton resolution is delegated to given lifetime
             public override object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory)
                 => _singletonLifetime.GetServiceAsSingleton(type, factory);
 
+            // Per-scope objects get cached
             public override object GetServicePerScope(Type type, Func<ILifetime, object> factory)
                 => GetCached(type, factory);
         }
