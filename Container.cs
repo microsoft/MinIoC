@@ -18,14 +18,8 @@ namespace Microsoft.MinIoC
         /// <summary>
         /// Represents a scope in which per-scope objects are instantiated a single time
         /// </summary>
-        public interface IScope : IDisposable
+        public interface IScope : IDisposable, IServiceProvider
         {
-            /// <summary>
-            /// Returns an implementation of the specified interface
-            /// </summary>
-            /// <typeparam name="T">Interface type</typeparam>
-            /// <returns>Object implementing the interface</returns>
-            T Resolve<T>();
         }
 
         /// <summary>
@@ -46,10 +40,15 @@ namespace Microsoft.MinIoC
         #endregion
 
         // Map of registered types
-        private Dictionary<Type, Func<Container, object>> _registeredTypes = new Dictionary<Type, Func<Container, object>>();
-        
-        // Instance cache
-        private ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
+        private Dictionary<Type, Func<ILifetime, object>> _registeredTypes = new Dictionary<Type, Func<ILifetime, object>>();
+
+        // Lifetime management
+        private ILifetime _lifetime;
+
+        /// <summary>
+        /// Creates a new instance of IoC Container
+        /// </summary>
+        public Container() => _lifetime = new ContainerLifetime(this);
 
         /// <summary>
         /// Registers an implementation type for the specified interface
@@ -68,60 +67,84 @@ namespace Microsoft.MinIoC
         /// <returns>IRegisteredType object</returns>
         public IRegisteredType Register<T>(Func<T> factory)
             => new RegisteredType(this, _registeredTypes[typeof(T)] = _ => factory(), typeof(T));
-
+        
         /// <summary>
-        /// Returns an implementation of the specified interface
+        /// Returns the object registered for the given type
         /// </summary>
-        /// <typeparam name="T">Interface type</typeparam>
-        /// <returns>Object implementing the interface</returns>
-        public T Resolve<T>() => (T)Resolve(typeof(T));
-
-        // Resolve the given type
-        private object Resolve(Type type) => _registeredTypes[type](this);
-
-        // Singleton resolution strategy
-        protected virtual object ResolveSingleton(Type type, Func<Container, object> factory)
-            => _instanceCache.GetOrAdd(type, _ => factory(this));
-
-        // Per-scope resolution strategy
-        protected virtual object ResolvePerScope(Type type, Func<Container, object> factory)
-            => factory(this);
-
-        // Scope is a Container
-        class Scope : Container
-        {
-            private Container _parent;
-
-            public Scope(Container parent)
-            {
-                _parent = parent;
-                _registeredTypes = _parent._registeredTypes;
-            }
-            
-            // Delegate singleton resolution to parent scope
-            protected override object ResolveSingleton(Type type, Func<Container, object> factory)
-                => _parent.ResolveSingleton(type, factory);
-
-            // Cache per-scope instances
-            protected override object ResolvePerScope(Type type, Func<Container, object> factory)
-                => _instanceCache.GetOrAdd(type, _ => factory(this));
-        }
+        /// <param name="type">Type as registered with the container</param>
+        /// <returns>Instance of the registered type</returns>
+        public object GetService(Type type) => _lifetime.GetService(type);
 
         /// <summary>
         /// Creates a new scope
         /// </summary>
         /// <returns>Scope object</returns>
-        public IScope CreateScope() => new Scope(this);
-        
-        public void Dispose()
+        public IScope CreateScope() => new ScopeLifetime(this);
+
+        public void Dispose() => _lifetime.Dispose();
+
+        #region Lifetime management
+        interface ILifetime : IScope
         {
-            foreach (var obj in _instanceCache.Values)
-                (obj as IDisposable)?.Dispose();
+            object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory);
+
+            object GetServicePerScope(Type type, Func<ILifetime, object> factory);
         }
+
+        class ContainerLifetime : ILifetime
+        {
+            // Container
+            private Container _container;
+
+            // Instance cache
+            private ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
+
+            public ContainerLifetime(Container container) => _container = container;
+
+            public object GetService(Type type) => _container._registeredTypes[type](this);
+
+            public object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory) 
+                => _instanceCache.GetOrAdd(type, _ => factory(this));
+
+            public object GetServicePerScope(Type type, Func<ILifetime, object> factory)
+                => factory(this);
+
+            public void Dispose()
+            {
+                foreach (var obj in _instanceCache.Values)
+                    (obj as IDisposable)?.Dispose();
+            }
+        }
+
+        class ScopeLifetime : ILifetime
+        {
+            // Container
+            private Container _container;
+
+            // Instance cache
+            private ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
+
+            public ScopeLifetime(Container container) => _container = container;
+
+            public object GetService(Type type) => _container._registeredTypes[type](this);
+
+            public object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory)
+                => _container._lifetime.GetServiceAsSingleton(type, factory);
+
+            public object GetServicePerScope(Type type, Func<ILifetime, object> factory)
+                => _instanceCache.GetOrAdd(type, _ => factory(_container._lifetime));
+
+            public void Dispose()
+            {
+                foreach (var obj in _instanceCache.Values)
+                    (obj as IDisposable)?.Dispose();
+            }
+        }
+        #endregion
 
         #region Container items
         // Compiles a lambda that calls the given type's first constructor resolving arguments
-        private static Func<Container, object> FactoryFromType(Type itemType)
+        private static Func<ILifetime, object> FactoryFromType(Type itemType)
         {
             // Get first constructor for the type
             var constructors = itemType.GetConstructors();
@@ -133,13 +156,13 @@ namespace Microsoft.MinIoC
             var constructor = constructors.First();
 
             // Compile constructor call as a lambda expression
-            var arg = Expression.Parameter(typeof(Container));
-            return (Func<Container, object>)Expression.Lambda(
+            var arg = Expression.Parameter(typeof(ILifetime));
+            return (Func<ILifetime, object>)Expression.Lambda(
                 Expression.New(constructor, constructor.GetParameters().Select(
                     param =>
                     {
-                        var resolve = new Func<Container, object>(
-                            container => container.Resolve(param.ParameterType));
+                        var resolve = new Func<ILifetime, object>(
+                            lifetime => lifetime.GetService(param.ParameterType));
                         return Expression.Convert(
                             Expression.Call(Expression.Constant(resolve.Target), resolve.Method, arg),
                             param.ParameterType);
@@ -152,10 +175,10 @@ namespace Microsoft.MinIoC
         class RegisteredType : IRegisteredType
         {
             private Container _container;
-            Func<Container, object> _factory;
+            Func<ILifetime, object> _factory;
             private Type _itemType;
 
-            public RegisteredType(Container container, Func<Container, object> factory, Type itemType)
+            public RegisteredType(Container container, Func<ILifetime, object> factory, Type itemType)
             {
                 _container = container;
                 _factory = factory;
@@ -164,12 +187,25 @@ namespace Microsoft.MinIoC
 
             public void AsSingleton()
                 => _container._registeredTypes[_itemType] =
-                    container => container.ResolveSingleton(_itemType, _factory);
+                    lifetime => lifetime.GetServiceAsSingleton(_itemType, _factory);
 
             public void PerScope() 
-                => _container._registeredTypes[_itemType] = 
-                    container => container.ResolvePerScope(_itemType, _factory);
+                => _container._registeredTypes[_itemType] =
+                    lifetime => lifetime.GetServicePerScope(_itemType, _factory);
         }
         #endregion
+    }
+
+    /// <summary>
+    /// Extension methods for Container.IScope
+    /// </summary>
+    static class IScopeExtensions
+    {
+        /// <summary>
+        /// Returns an implementation of the specified interface
+        /// </summary>
+        /// <typeparam name="T">Interface type</typeparam>
+        /// <returns>Object implementing the interface</returns>
+        public static T Resolve<T>(this Container.IScope scope) => (T)scope.GetService(typeof(T));
     }
 }
