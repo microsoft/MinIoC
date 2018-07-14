@@ -51,23 +51,26 @@ namespace Microsoft.MinIoC
         public Container() => _lifetime = new ContainerLifetime(t => _registeredTypes[t]);
 
         /// <summary>
-        /// Registers an implementation type for the specified interface
-        /// </summary>
-        /// <typeparam name="T">Interface to register</typeparam>
-        /// <param name="type">Implementing type</param>
-        /// <returns>IRegisteredType object</returns>
-        public IRegisteredType Register<T>(Type type)
-            => new RegisteredType<T>((t, f) => _registeredTypes[t] = f, FactoryFromType(type));
-
-        /// <summary>
         /// Registers a factory function which will be called to resolve the specified interface
         /// </summary>
-        /// <typeparam name="T">Interface to register</typeparam>
-        /// <param name="factory">Factory method</param>
-        /// <returns>IRegisteredType object</returns>
-        public IRegisteredType Register<T>(Func<T> factory)
-            => new RegisteredType<T>((t, f) => _registeredTypes[t] = f,  _ => factory());
-        
+        /// <param name="interface">Interface to register</param>
+        /// <param name="factory">Factory function</param>
+        /// <returns></returns>
+        public IRegisteredType Register(Type @interface, Func<object> factory)
+            => RegisterType(@interface, _ => factory());
+
+        /// <summary>
+        /// Registers an implementation type for the specified interface
+        /// </summary>
+        /// <param name="interface">Interface to register</param>
+        /// <param name="implementation">Implementing type</param>
+        /// <returns></returns>
+        public IRegisteredType Register(Type @interface, Type @implementation)
+            => RegisterType(@interface, FactoryFromType(@implementation));
+
+        private IRegisteredType RegisterType(Type itemType, Func<ILifetime, object> factory)
+            => new RegisteredType(itemType, f => _registeredTypes[itemType] = f, factory);
+
         /// <summary>
         /// Returns the object registered for the given type
         /// </summary>
@@ -93,7 +96,7 @@ namespace Microsoft.MinIoC
         }
 
         // Base lifetime provides common caching logic
-        abstract class BaseLifetime
+        abstract class ObjectCache
         {
             // Instance cache
             private ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
@@ -110,7 +113,7 @@ namespace Microsoft.MinIoC
         }
 
         // Container lifetime management
-        class ContainerLifetime : BaseLifetime, ILifetime
+        class ContainerLifetime : ObjectCache, ILifetime
         {
             private Func<Type, Func<ILifetime, object>> _getFactory;
 
@@ -118,7 +121,6 @@ namespace Microsoft.MinIoC
 
             public Func<ILifetime, object> GetFactory(Type type) => _getFactory(type);
 
-            // Calls given _getFactory function
             public object GetService(Type type) => GetFactory(type)(this);
 
             // Singletons get cached per container
@@ -131,17 +133,16 @@ namespace Microsoft.MinIoC
         }
 
         // Per-scope lifetime management
-        class ScopeLifetime : BaseLifetime, ILifetime
+        class ScopeLifetime : ObjectCache, ILifetime
         {
             // Singletons come from parent container's lifetime
             private ContainerLifetime _parentContainer;
 
             public ScopeLifetime(ContainerLifetime parentContainer) => _parentContainer = parentContainer;
 
-            // Calls given _getFactory function
             public object GetService(Type type) => _parentContainer.GetFactory(type)(this);
 
-            // Singleton resolution is delegated to given lifetime
+            // Singleton resolution is delegated to parent lifetime
             public object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory)
                 => _parentContainer.GetServiceAsSingleton(type, factory);
 
@@ -181,33 +182,63 @@ namespace Microsoft.MinIoC
 
         // RegisteredType is supposed to be a short lived object tying an item to its container
         // and allowing users to mark it as a singleton or per-scope item
-        class RegisteredType<T> : IRegisteredType
+        class RegisteredType : IRegisteredType
         {
-            Action<Type, Func<ILifetime, object>> _registerFactory;
+            Type _itemType;
+            Action<Func<ILifetime, object>> _registerFactory;
             Func<ILifetime, object> _factory;
 
-            public RegisteredType(Action<Type, Func<ILifetime, object>> registerFactory, Func<ILifetime, object> factory)
+            public RegisteredType(Type itemType, Action<Func<ILifetime, object>> registerFactory, Func<ILifetime, object> factory)
             {
+                _itemType = itemType;
                 _registerFactory = registerFactory;
                 _factory = factory;
 
-                registerFactory(typeof(T), _factory);
+                registerFactory(_factory);
             }
 
             public void AsSingleton()
-                => _registerFactory(typeof(T), lifetime => lifetime.GetServiceAsSingleton(typeof(T), _factory));
+                => _registerFactory(lifetime => lifetime.GetServiceAsSingleton(_itemType, _factory));
 
             public void PerScope() 
-                => _registerFactory(typeof(T), lifetime => lifetime.GetServicePerScope(typeof(T), _factory));
+                => _registerFactory(lifetime => lifetime.GetServicePerScope(_itemType, _factory));
         }
         #endregion
     }
 
     /// <summary>
-    /// Extension methods for Container.IScope
+    /// Extension methods for Container
     /// </summary>
-    public static class IScopeExtensions
+    public static class ContainerExtensions
     {
+        /// <summary>
+        /// Registers an implementation type for the specified interface
+        /// </summary>
+        /// <param name="container">This container instance</param>
+        /// <typeparam name="T">Interface to register</typeparam>
+        /// <param name="type">Implementing type</param>
+        /// <returns>IRegisteredType object</returns>
+        public static Container.IRegisteredType Register<T>(this Container container, Type type)
+            => container.Register(typeof(T), type);
+
+        /// <summary>
+        /// Registers a factory function which will be called to resolve the specified interface
+        /// </summary>
+        /// <typeparam name="T">Interface to register</typeparam>
+        /// <param name="factory">Factory method</param>
+        /// <returns>IRegisteredType object</returns>
+        public static Container.IRegisteredType Register<T>(this Container container, Func<T> factory)
+            => container.Register(typeof(T), () => factory());
+
+        /// <summary>
+        /// Registers a type
+        /// </summary>
+        /// <param name="container">This container instance</param>
+        /// <typeparam name="T">Type to register</typeparam>
+        /// <returns>IRegisteredType object</returns>
+        public static Container.IRegisteredType Register<T>(this Container container)
+            => container.Register(typeof(T), typeof(T));
+
         /// <summary>
         /// Returns an implementation of the specified interface
         /// </summary>
