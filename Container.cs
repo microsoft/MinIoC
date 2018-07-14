@@ -115,11 +115,10 @@ namespace Microsoft.MinIoC
         // Container lifetime management
         class ContainerLifetime : ObjectCache, ILifetime
         {
-            private Func<Type, Func<ILifetime, object>> _getFactory;
+            // Retrieves the factory functino from the given type, provided by owning container
+            public Func<Type, Func<ILifetime, object>> GetFactory { get; private set; }
 
-            public ContainerLifetime(Func<Type, Func<ILifetime, object>> getFactory) => _getFactory = getFactory;
-
-            public Func<ILifetime, object> GetFactory(Type type) => _getFactory(type);
+            public ContainerLifetime(Func<Type, Func<ILifetime, object>> getFactory) => GetFactory = getFactory;
 
             public object GetService(Type type) => GetFactory(type)(this);
 
@@ -136,15 +135,15 @@ namespace Microsoft.MinIoC
         class ScopeLifetime : ObjectCache, ILifetime
         {
             // Singletons come from parent container's lifetime
-            private ContainerLifetime _parentContainer;
+            private ContainerLifetime _parentLifetime;
 
-            public ScopeLifetime(ContainerLifetime parentContainer) => _parentContainer = parentContainer;
+            public ScopeLifetime(ContainerLifetime parentContainer) => _parentLifetime = parentContainer;
 
-            public object GetService(Type type) => _parentContainer.GetFactory(type)(this);
+            public object GetService(Type type) => _parentLifetime.GetFactory(type)(this);
 
             // Singleton resolution is delegated to parent lifetime
             public object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory)
-                => _parentContainer.GetServiceAsSingleton(type, factory);
+                => _parentLifetime.GetServiceAsSingleton(type, factory);
 
             // Per-scope objects get cached
             public object GetServicePerScope(Type type, Func<ILifetime, object> factory)
