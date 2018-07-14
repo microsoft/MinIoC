@@ -65,8 +65,8 @@ namespace Microsoft.MinIoC
         /// <param name="interface">Interface to register</param>
         /// <param name="implementation">Implementing type</param>
         /// <returns></returns>
-        public IRegisteredType Register(Type @interface, Type @implementation)
-            => RegisterType(@interface, FactoryFromType(@implementation));
+        public IRegisteredType Register(Type @interface, Type implementation)
+            => RegisterType(@interface, FactoryFromType(implementation));
 
         private IRegisteredType RegisterType(Type itemType, Func<ILifetime, object> factory)
             => new RegisteredType(itemType, f => _registeredTypes[itemType] = f, factory);
@@ -95,7 +95,7 @@ namespace Microsoft.MinIoC
             object GetServicePerScope(Type type, Func<ILifetime, object> factory);
         }
 
-        // Base lifetime provides common caching logic
+        // ObjectCache provides common caching logic for lifetimes
         abstract class ObjectCache
         {
             // Instance cache

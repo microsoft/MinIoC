@@ -199,6 +199,31 @@ namespace Microsoft.MinIoC.Tests
             Assert.IsTrue(spy.Disposed);
         }
 
+        [TestMethod]
+        public void ContainerDisposesOfSingletons()
+        {
+            SpyDisposable spy;
+            using (var container = new Container())
+            {
+                container.Register<SpyDisposable>().AsSingleton();
+                spy = container.Resolve<SpyDisposable>();
+            }
+
+            Assert.IsTrue(spy.Disposed);
+        }
+
+        [TestMethod]
+        public void SingletonsAreDifferentAcrossContainers()
+        {
+            var container1 = new Container();
+            container1.Register<IFoo>(typeof(Foo)).AsSingleton();
+
+            var container2 = new Container();
+            container2.Register<IFoo>(typeof(Foo)).AsSingleton();
+
+            Assert.AreNotEqual(container1.Resolve<IFoo>(), container2.Resolve<IFoo>());
+        }
+
         #region Types used for tests
         interface IFoo
         {
