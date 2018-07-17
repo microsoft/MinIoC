@@ -5,20 +5,26 @@ MinIoC is a single-file, minimal C# IoC container. While there are several great
 # Example
 
 ```c#
-Container.Register<IFoo>(typeof(Foo));
-Container.Register<IBar>(() => new Bar());
-Container.Register<IBaz>(typeof(Baz)).AsSingleton();
+var container = new Container();
+
+container.Register<IFoo>(typeof(Foo));
+container.Register<IBar>(() => new Bar());
+container.Register<IBaz>(typeof(Baz)).AsSingleton();
 
 /* ... */
 
-var baz = Container.Resolve<IBaz>();
+var baz = container.Resolve<IBaz>();
 ```
 
-# API
-
-The `Container` class provides two `Register` methods: `Register<T>(Type)` and `Register<T>(Func<T>))`. The first one binds the generic parameter type to an actual type, the second binds the generic parameter type to a factory function. Calling `Resolve<T>()` creates an instance of the registered type.
+The example above calls the generic `Register<T>(Type)` and `Register<T>(Func<T>)` methods. The first one binds the generic parameter type to an actual type, the second binds the generic parameter type to a factory function. Calling `Resolve<T>()` creates an instance of the registered type.
 
 For a type binding, the container uses the actual type's first constructor. All arguments need to also be resolvable by the container.
+
+# API Details
+
+The container implements `IServiceProvider`, exposing an `object GetService(Type type)` method and two non-generic registration methods: `Register(Type @interface, Func<object> factory)` and `Register(Type @interface, Type implementation)`.
+
+Generic extension methods are provided both for registration (`Register<T>(Type)`, `Register<T>(Func<T>)`, `Register<T>()`) and resolution (`T Resolve<T>()`).
 
 ## Lifetimes
 
@@ -43,8 +49,8 @@ Container.Register<IFoo>(typeof(Foo)).PerScope();
 var instance1 = Container.Resolve<IFoo>();
 var instance2 = Container.Resolve<IFoo>();
 
-// Instances should be different if not in a scope
-Assert.AreNotEqual(instance1, instance2);
+// Container is itself a scope
+Assert.AreEqual(instance1, instance2);
 
 using (var scope = Container.CreateScope())
 {
@@ -53,6 +59,9 @@ using (var scope = Container.CreateScope())
 
     // Instances should be equal inside a scope
     Assert.AreEqual(instance3, instance4);
+    
+    // Instances should not be equal across scopes
+    Assert.AreNotEqual(instance1, instance3);
 }
 ```
 
