@@ -105,8 +105,8 @@ namespace Microsoft.MinIoC.Tests
             object instance1 = Container.Resolve<IFoo>();
             object instance2 = Container.Resolve<IFoo>();
 
-            // Instances should be different if not in a scope
-            Assert.AreNotEqual(instance1, instance2);
+            // Instances should be same as the container is itself a scope
+            Assert.AreEqual(instance1, instance2);
 
             using (var scope = Container.CreateScope())
             {
@@ -115,6 +115,9 @@ namespace Microsoft.MinIoC.Tests
 
                 // Instances should be equal inside a scope
                 Assert.AreEqual(instance3, instance4);
+
+                // Instances should not be equal between scopes
+                Assert.AreNotEqual(instance1, instance3);
             }
         }
 
@@ -147,6 +150,23 @@ namespace Microsoft.MinIoC.Tests
         }
 
         [TestMethod]
+        public void SingletonScopedResolution()
+        {
+            Container.Register<IFoo>(typeof(Foo)).AsSingleton();
+            Container.Register<IBar>(typeof(Bar)).PerScope();
+
+            var instance1 = Container.Resolve<IBar>();
+
+            using (var scope = Container.CreateScope())
+            {
+                var instance2 = Container.Resolve<IBar>();
+
+                // Singleton should resolve to the same instance
+                Assert.AreEqual((instance1 as Bar).Foo, (instance2 as Bar).Foo);
+            }
+        }
+
+        [TestMethod]
         public void MixedNoScopeResolution()
         {
             Container.Register<IFoo>(typeof(Foo)).PerScope();
@@ -162,10 +182,10 @@ namespace Microsoft.MinIoC.Tests
             // Singleton should be same
             Assert.AreEqual(instance1.Bar, instance2.Bar);
 
-            // Scoped types should be different outside a scope
-            Assert.AreNotEqual(instance1.Foo, instance2.Foo);
-            Assert.AreNotEqual(instance1.Foo, (instance1.Bar as Bar).Foo);
-            Assert.AreNotEqual(instance2.Foo, (instance2.Bar as Bar).Foo);
+            // Scoped types should not be different outside a scope
+            Assert.AreEqual(instance1.Foo, instance2.Foo);
+            Assert.AreEqual(instance1.Foo, (instance1.Bar as Bar).Foo);
+            Assert.AreEqual(instance2.Foo, (instance2.Bar as Bar).Foo);
         }
 
         [TestMethod]

@@ -126,9 +126,9 @@ namespace Microsoft.MinIoC
             public object GetServiceAsSingleton(Type type, Func<ILifetime, object> factory)
                 => GetCached(type, factory, this);
 
-            // At container level, per-scope items are not cached
+            // At container level, per-scope items are equivalent to singletons
             public object GetServicePerScope(Type type, Func<ILifetime, object> factory)
-                => factory(this);
+                => GetServiceAsSingleton(type, factory);
         }
 
         // Per-scope lifetime management
