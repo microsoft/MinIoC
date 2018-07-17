@@ -213,7 +213,6 @@ namespace Microsoft.MinIoC
         /// <summary>
         /// Registers an implementation type for the specified interface
         /// </summary>
-        /// <param name="container">This container instance</param>
         /// <typeparam name="T">Interface to register</typeparam>
         /// <param name="type">Implementing type</param>
         /// <returns>IRegisteredType object</returns>
