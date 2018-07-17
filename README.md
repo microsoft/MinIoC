@@ -33,10 +33,10 @@ By default, each call to `Resolve<T>()` creates a new instance. Two other object
 A singleton is created by calling `AsSingleton()` after registration:
 
 ```csharp
-Container.Register<IFoo>(typeof(Foo)).AsSingleton();
+container.Register<IFoo>(typeof(Foo)).AsSingleton();
 
-var instance1 = Container.Resolve<IFoo>();
-var instance2 = Container.Resolve<IFoo>();
+var instance1 = container.Resolve<IFoo>();
+var instance2 = container.Resolve<IFoo>();
 
 Assert.AreEqual(instance1, instance2);
 ```
@@ -44,15 +44,15 @@ Assert.AreEqual(instance1, instance2);
 Scopes allow finer-grained lifetime control, where all types registered as per-scope are unique within a given scope. This allows singleton-like behavior within a scope but multiple object instances can be created across scopes. Scopes are created by calling `Container.CreateScope()` and they also expose a `Resolve<T>()` method: 
 
 ```csharp
-Container.Register<IFoo>(typeof(Foo)).PerScope();
+container.Register<IFoo>(typeof(Foo)).PerScope();
   
-var instance1 = Container.Resolve<IFoo>();
-var instance2 = Container.Resolve<IFoo>();
+var instance1 = container.Resolve<IFoo>();
+var instance2 = container.Resolve<IFoo>();
 
 // Container is itself a scope
 Assert.AreEqual(instance1, instance2);
 
-using (var scope = Container.CreateScope())
+using (var scope = container.CreateScope())
 {
     var instance3 = scope.Resolve<IFoo>();
     var instance4 = scope.Resolve<IFoo>();
