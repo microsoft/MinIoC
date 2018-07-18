@@ -40,10 +40,10 @@ namespace Microsoft.MinIoC
         #endregion
 
         // Map of registered types
-        private Dictionary<Type, Func<ILifetime, object>> _registeredTypes = new Dictionary<Type, Func<ILifetime, object>>();
+        Dictionary<Type, Func<ILifetime, object>> _registeredTypes = new Dictionary<Type, Func<ILifetime, object>>();
 
         // Lifetime management
-        private ContainerLifetime _lifetime;
+        ContainerLifetime _lifetime;
 
         /// <summary>
         /// Creates a new instance of IoC Container
@@ -68,7 +68,7 @@ namespace Microsoft.MinIoC
         public IRegisteredType Register(Type @interface, Type implementation)
             => RegisterType(@interface, FactoryFromType(implementation));
 
-        private IRegisteredType RegisterType(Type itemType, Func<ILifetime, object> factory)
+        IRegisteredType RegisterType(Type itemType, Func<ILifetime, object> factory)
             => new RegisteredType(itemType, f => _registeredTypes[itemType] = f, factory);
 
         /// <summary>
@@ -102,7 +102,7 @@ namespace Microsoft.MinIoC
         abstract class ObjectCache
         {
             // Instance cache
-            private ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
+            ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
 
             // Get from cache or create and cache object
             protected object GetCached(Type type, Func<ILifetime, object> factory, ILifetime lifetime)
@@ -138,7 +138,7 @@ namespace Microsoft.MinIoC
         class ScopeLifetime : ObjectCache, ILifetime
         {
             // Singletons come from parent container's lifetime
-            private ContainerLifetime _parentLifetime;
+            ContainerLifetime _parentLifetime;
 
             public ScopeLifetime(ContainerLifetime parentContainer) => _parentLifetime = parentContainer;
 
@@ -156,7 +156,7 @@ namespace Microsoft.MinIoC
 
         #region Container items
         // Compiles a lambda that calls the given type's first constructor resolving arguments
-        private static Func<ILifetime, object> FactoryFromType(Type itemType)
+        static Func<ILifetime, object> FactoryFromType(Type itemType)
         {
             // Get first constructor for the type
             var constructors = itemType.GetConstructors();
