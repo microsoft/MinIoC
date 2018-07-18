@@ -228,6 +228,7 @@ namespace Microsoft.MinIoC
         /// </summary>
         /// <typeparam name="TInterface">Interface to register</typeparam>
         /// <typeparam name="TImplementation">Implementing type</typeparam>
+        /// <param name="container">This container instance</param>
         /// <returns>IRegisteredType object</returns>
         public static Container.IRegisteredType Register<TInterface, TImplementation>(this Container container)
             => container.Register(typeof(TInterface), typeof(TImplementation));
@@ -255,6 +256,7 @@ namespace Microsoft.MinIoC
         /// Returns an implementation of the specified interface
         /// </summary>
         /// <typeparam name="T">Interface type</typeparam>
+        /// <param name="scope">This scope instance</param>
         /// <returns>Object implementing the interface</returns>
         public static T Resolve<T>(this Container.IScope scope) => (T)scope.GetService(typeof(T));
     }
