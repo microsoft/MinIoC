@@ -40,10 +40,10 @@ namespace Microsoft.MinIoC
         #endregion
 
         // Map of registered types
-        private Dictionary<Type, Func<ILifetime, object>> _registeredTypes = new Dictionary<Type, Func<ILifetime, object>>();
+        private readonly Dictionary<Type, Func<ILifetime, object>> _registeredTypes = new Dictionary<Type, Func<ILifetime, object>>();
 
         // Lifetime management
-        private ContainerLifetime _lifetime;
+        private readonly ContainerLifetime _lifetime;
 
         /// <summary>
         /// Creates a new instance of IoC Container
@@ -102,7 +102,7 @@ namespace Microsoft.MinIoC
         abstract class ObjectCache
         {
             // Instance cache
-            private ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
+            private readonly ConcurrentDictionary<Type, object> _instanceCache = new ConcurrentDictionary<Type, object>();
 
             // Get from cache or create and cache object
             protected object GetCached(Type type, Func<ILifetime, object> factory, ILifetime lifetime)
@@ -138,7 +138,7 @@ namespace Microsoft.MinIoC
         class ScopeLifetime : ObjectCache, ILifetime
         {
             // Singletons come from parent container's lifetime
-            private ContainerLifetime _parentLifetime;
+            private readonly ContainerLifetime _parentLifetime;
 
             public ScopeLifetime(ContainerLifetime parentContainer) => _parentLifetime = parentContainer;
 
@@ -186,9 +186,9 @@ namespace Microsoft.MinIoC
         // and allowing users to mark it as a singleton or per-scope item
         class RegisteredType : IRegisteredType
         {
-            Type _itemType;
-            Action<Func<ILifetime, object>> _registerFactory;
-            Func<ILifetime, object> _factory;
+            private readonly Type _itemType;
+            private readonly Action<Func<ILifetime, object>> _registerFactory;
+            private readonly Func<ILifetime, object> _factory;
 
             public RegisteredType(Type itemType, Action<Func<ILifetime, object>> registerFactory, Func<ILifetime, object> factory)
             {
