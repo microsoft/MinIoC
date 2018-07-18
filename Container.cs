@@ -84,6 +84,9 @@ namespace Microsoft.MinIoC
         /// <returns>Scope object</returns>
         public IScope CreateScope() => new ScopeLifetime(_lifetime);
 
+        /// <summary>
+        /// Disposes any <see cref="IDisposable"/> objects owned by this container.
+        /// </summary>
         public void Dispose() => _lifetime.Dispose();
         
         #region Lifetime management
@@ -214,6 +217,7 @@ namespace Microsoft.MinIoC
         /// Registers an implementation type for the specified interface
         /// </summary>
         /// <typeparam name="T">Interface to register</typeparam>
+        /// <param name="container">This container instance</param>
         /// <param name="type">Implementing type</param>
         /// <returns>IRegisteredType object</returns>
         public static Container.IRegisteredType Register<T>(this Container container, Type type)
@@ -223,6 +227,7 @@ namespace Microsoft.MinIoC
         /// Registers a factory function which will be called to resolve the specified interface
         /// </summary>
         /// <typeparam name="T">Interface to register</typeparam>
+        /// <param name="container">This container instance</param>
         /// <param name="factory">Factory method</param>
         /// <returns>IRegisteredType object</returns>
         public static Container.IRegisteredType Register<T>(this Container container, Func<T> factory)

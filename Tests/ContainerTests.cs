@@ -6,6 +6,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Microsoft.MinIoC.Tests
 {
+#pragma warning disable 1591
     [TestClass]
     public class ContainerTests
     {
@@ -291,4 +292,5 @@ namespace Microsoft.MinIoC.Tests
         }
         #endregion
     }
+#pragma warning restore 1591
 }
