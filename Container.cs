@@ -224,6 +224,15 @@ namespace Microsoft.MinIoC
             => container.Register(typeof(T), type);
 
         /// <summary>
+        /// Registers an implementation type for the specified interface
+        /// </summary>
+        /// <typeparam name="TInterface">Interface to register</typeparam>
+        /// <typeparam name="TImplementation">Implementing type</typeparam>
+        /// <returns>IRegisteredType object</returns>
+        public static Container.IRegisteredType Register<TInterface, TImplementation>(this Container container)
+            => container.Register(typeof(TInterface), typeof(TImplementation));
+
+        /// <summary>
         /// Registers a factory function which will be called to resolve the specified interface
         /// </summary>
         /// <typeparam name="T">Interface to register</typeparam>
