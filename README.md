@@ -2,6 +2,9 @@
 
 MinIoC is a single-file, minimal C# IoC container. While there are several great IoC solutions available which are much more powerful and flexible, MinIoC aims to enable lightweight/small-footprint projects with a simple implementation. It is distributed as [a single .cs file](https://raw.githubusercontent.com/Microsoft/MinIoC/master/Container.cs) which can be included and compiled in other projects.
 
+[![Build status](https://vladris.visualstudio.com/MinIoC/_apis/build/status/MinIoC-.NET%20Desktop-CI
+ ?branch=master)](https://vladris.visualstudio.com/MinIoC/_build/latest?definitionId=4&branch=master)]
+
 # Example
 
 ```c#
