@@ -41,7 +41,7 @@ var instance2 = container.Resolve<IFoo>();
 Assert.AreEqual(instance1, instance2);
 ```
 
-Scopes allow finer-grained lifetime control, where all types registered as per-scope are unique within a given scope. This allows singleton-like behavior within a scope but multiple object instances can be created across scopes. Scopes are created by calling `Container.CreateScope()` and they also expose a `Resolve<T>()` method: 
+Scopes allow finer-grained lifetime control, where all types registered as per-scope are unique within a given scope. This allows singleton-like behavior within a scope but multiple object instances can be created across scopes. Scopes are created by calling `CreateScope()` on a contianer instance and they also implement `IServiceProvider`, exposing an `object GetService(Type type)` method (and a `Resolve<T>()` extension method): 
 
 ```csharp
 container.Register<IFoo>(typeof(Foo)).PerScope();
