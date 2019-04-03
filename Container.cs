@@ -231,6 +231,7 @@ namespace Microsoft.MinIoC
         /// <param name="container">This container instance</param>
         /// <returns>IRegisteredType object</returns>
         public static Container.IRegisteredType Register<TInterface, TImplementation>(this Container container)
+            where TImplementation : TInterface
             => container.Register(typeof(TInterface), typeof(TImplementation));
 
         /// <summary>
