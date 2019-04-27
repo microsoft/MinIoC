@@ -72,11 +72,21 @@ namespace Microsoft.MinIoC
             => new RegisteredType(itemType, f => _registeredTypes[itemType] = f, factory);
 
         /// <summary>
-        /// Returns the object registered for the given type
+        /// Returns the object registered for the given type, if registered
         /// </summary>
         /// <param name="type">Type as registered with the container</param>
-        /// <returns>Instance of the registered type</returns>
-        public object GetService(Type type) => _registeredTypes[type](_lifetime);
+        /// <returns>Instance of the registered type, if registered; otherwise <see langword="null"/></returns>
+        public object GetService(Type type)
+        {
+            Func<ILifetime, object> registeredType;
+
+            if (!_registeredTypes.TryGetValue(type, out registeredType))
+            {
+                return null;
+            }
+
+            return registeredType(_lifetime);
+        }
 
         /// <summary>
         /// Creates a new scope
