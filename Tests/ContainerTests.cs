@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Microsoft.MinIoC.Tests
@@ -243,6 +244,28 @@ namespace Microsoft.MinIoC.Tests
             container2.Register<IFoo>(typeof(Foo)).AsSingleton();
 
             Assert.AreNotEqual(container1.Resolve<IFoo>(), container2.Resolve<IFoo>());
+        }
+
+        [TestMethod]
+        public void GetServiceUnregisteredTypeReturnsNull()
+        {
+            using (var container = new Container())
+            {
+                object value = container.GetService(typeof(Foo));
+
+                Assert.IsNull(value);
+            }
+        }
+
+        [TestMethod]
+        public void GetServiceMissingDependencyThrows()
+        {
+            using (var container = new Container())
+            {
+                container.Register<Bar>();
+
+                Assert.ThrowsException<KeyNotFoundException>(() => container.GetService(typeof(Bar)));
+            }
         }
 
         #region Types used for tests
