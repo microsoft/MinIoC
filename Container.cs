@@ -88,7 +88,7 @@ namespace Microsoft.MinIoC
         /// Disposes any <see cref="IDisposable"/> objects owned by this container.
         /// </summary>
         public void Dispose() => _lifetime.Dispose();
-        
+
         #region Lifetime management
         // ILifetime management adds resolution strategies to an IScope
         interface ILifetime : IScope
@@ -202,7 +202,7 @@ namespace Microsoft.MinIoC
             public void AsSingleton()
                 => _registerFactory(lifetime => lifetime.GetServiceAsSingleton(_itemType, _factory));
 
-            public void PerScope() 
+            public void PerScope()
                 => _registerFactory(lifetime => lifetime.GetServicePerScope(_itemType, _factory));
         }
         #endregion
